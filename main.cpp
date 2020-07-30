@@ -362,7 +362,7 @@ int main(int args, char** arg)
     SSL_CTX *ctx;
     initOpenSSL();
     ctx = create_context();
-    configure_context(ctx, "./ca-certificates/EDAG_Engineering.crt", "./ca-certificates/privkey.pem");
+    configure_context(ctx, "./ca-certificates/xxxxxx.crt", "./ca-certificates/xxxxx.key");
 
     boost::asio::ip::tcp::socket socket(io_service);
 //waiting for connection
