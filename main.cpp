@@ -1,4 +1,4 @@
-//#include <stdio.h>
+#include <stdio.h>
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
 #define ssl_socket boost::asio::ssl::stream<boost::asio::ip::tcp::socket>
@@ -69,29 +69,6 @@ void handleHTTPSRequest(ssl_socket& server)
         }
         if(transfered == 0)
         {
-            /*std::string buf((const char*)buffer);
-            int h = buf.find("Host:") + 4;
-            while(buffer[h] != '\r' && buffer[h] != '\n' && h > 4)
-            {
-                if(buffer[h] == ':')
-                {
-                    std::string np = destination.next_layer().remote_endpoint().address().to_string()+":"+std::to_string(targetport);
-                    int p = h;
-                    for(int i = 0; i < np.length(); i++)
-                    {
-                        buffer[h+1+i] = np[i];
-                        p = h+1+i;
-                    }
-                    p++;
-                    while (buffer[p] != '\r' && buffer[p] != '\n')
-                    {
-                        buffer[p] = ' ';
-                        p++;
-                    }
-                    break;
-                }
-                h++;
-            }*/
             request = HttpRequest(std::string((char*)buffer));
             if(recv > 0 && request.method == "GET")
             {
@@ -113,11 +90,35 @@ void handleHTTPSRequest(ssl_socket& server)
             std::string path = request.path;
             if(path == "/")
             {
-                path = "index.html";
+                path = "WEB/index.html";
             }
             if(path[0] == '/')
             {
-                path = path.substr(1);
+                //path = path.substr(1);
+                path = "WEB" + path;
+            }
+            if(access(path.c_str(), F_OK ) == -1)
+            {
+                snd = 0;
+                std::string notFound = "HTTP/1.1 404 Not Found\r\n\r\n<html><head><title>Not Found 404</title></head><body><h1>Not Found!</h1></body></html>";
+                printf("Not found!\n");
+                try
+                {
+                    while (snd < notFound.length())
+                    {
+                        snd = server.write_some(boost::asio::buffer(notFound.c_str()+snd, notFound.size()-snd));
+                        if(snd == -1)
+                        {
+                            break;
+                        }
+                        transfered += snd;
+                    }
+                }
+                catch(std::exception e)
+                {
+                    return;
+                }
+                return;
             }
             FILE* f = fopen(path.c_str(), "rb");
             if(f == 0)
@@ -203,7 +204,26 @@ void handleHTTPSRequest(ssl_socket& server)
         }
         else
         {
-            /* code */
+            snd = 0;
+            std::string notFound = "HTTP/1.1 404 Not Found\r\n\r\n<html><head><title>Not Found 404</title></head><body><h1>Not Found!</h1></body></html>";
+            printf("Not found!\n");
+            try
+            {
+                while (snd < notFound.length())
+                {
+                    snd = server.write_some(boost::asio::buffer(notFound.c_str()+snd, notFound.size()-snd));
+                    if(snd == -1)
+                    {
+                        break;
+                    }
+                    transfered += snd;
+                }
+            }
+            catch(std::exception e)
+            {
+                return;
+            }
+            return;
         }
     }
 
@@ -242,9 +262,26 @@ void server(int port, bool https = true)
     }
 }
 
-int main(int args, char** arg)
+int main(int args, char** argv)
 {
     int port = 8080;
+
+    if(args > 1)
+    {
+        if(strcmp(argv[1], "--help") == 0)
+        {
+            printf("Usage:\n%s -p PORT(Default=443)\n", argv[0]);
+            return 0;
+        }
+    }
+
+    if(args > 2)
+    {
+        if(strcmp(argv[1], "-p") == 0)
+        {
+            port = atoi(argv[2]);
+        }
+    }
 
     server(port);
 
