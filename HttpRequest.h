@@ -1,3 +1,6 @@
+#ifndef ssl_socket
+    #define ssl_socket boost::asio::ssl::stream<boost::asio::ip::tcp::socket>
+#endif
 class StringMap
 {
     std::vector<std::string> keys;
