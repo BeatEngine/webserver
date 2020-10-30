@@ -142,6 +142,17 @@ class RequestHandler
                 }
                 return true;
             }
+            else if(paths[i].find("*") == paths[i].length()-1)
+            {
+                if(paths[i].substr(0, paths[i].length()-1) == path.substr(0, paths[i].length()-1) && methods[i] == method)
+                {
+                    if(returnMappedFilePath)
+                    {
+                        *returnMappedFilePath = filePath[i];
+                    }
+                    return true;
+                }
+            }
         }
         return false;
     }
@@ -153,6 +164,13 @@ class RequestHandler
             if(paths[i] == request.path && methods[i] == request.method && events[i] != 0)
             {
                 return ((std::string(*)(HttpRequest& request, unsigned char* requestBodyBuffer, FILE* requestBodyFile, size_t bufferSize))(events[i]))(request, buffer, fbuffer, bufferSize);
+            }
+            else if(paths[i].find("*") == paths[i].length()-1)
+            {
+                if(paths[i].substr(0, paths[i].length()-1) == request.path.substr(0, paths[i].length()-1) && methods[i] == request.method)
+                {
+                    return ((std::string(*)(HttpRequest& request, unsigned char* requestBodyBuffer, FILE* requestBodyFile, size_t bufferSize))(events[i]))(request, buffer, fbuffer, bufferSize);
+                }
             }
         }
         return "";
