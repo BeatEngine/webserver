@@ -114,7 +114,7 @@ class RequestHandler
 
     RequestHandler(){};
 
-    void setPathEvent(std::string& path, std::string& method, std::string(*event)(HttpRequest& request))
+    void setPathEvent(std::string& path, std::string& method, std::string(*event)(HttpRequest& request, unsigned char* requestBodyBuffer, FILE* requestBodyFile, size_t bufferSize))
     {
         paths.push_back(path);
         methods.push_back(method);
@@ -146,13 +146,13 @@ class RequestHandler
         return false;
     }
 
-    std::string getEventResult(HttpRequest& request)
+    std::string getEventResult(HttpRequest& request, unsigned char* buffer, FILE* fbuffer, size_t bufferSize)
     {
         for(int i = 0; i < paths.size(); i++)
         {
             if(paths[i] == request.path && methods[i] == request.method && events[i] != 0)
             {
-                return ((std::string(*)(HttpRequest& request))(events[i]))(request);
+                return ((std::string(*)(HttpRequest& request, unsigned char* requestBodyBuffer, FILE* requestBodyFile, size_t bufferSize))(events[i]))(request, buffer, fbuffer, bufferSize);
             }
         }
         return "";
@@ -165,8 +165,30 @@ class RequestHandler
 
 };
 
+std::string randomFilename(int length = 10)
+{
+    srand(clock());
+    std::string fn = "";
+    for(int i = 0; i < length; i++)
+    {
+        if(rand()%2 == 0)
+        {
+            fn += (char)(97+rand() % 26);
+        }
+        else if(rand()%3 == 0)
+        {
+            fn += (char)(48+rand() % 9);
+        }
+        else
+        {
+            fn += (char)(65+rand() % 26);
+        }
+    }
+    return fn;
+}
+
 template<class SocketType>
-void handleHTTPSRequest(SocketType& server, RequestHandler* requestHandle = 0)
+void handleHTTPSRequest(SocketType& server, RequestHandler* requestHandle = 0, bool consoleOutput = true)
 {
     unsigned char buffer[2048];
     int recv = 0;
@@ -177,6 +199,9 @@ void handleHTTPSRequest(SocketType& server, RequestHandler* requestHandle = 0)
     long av;
     HttpRequest request;
     bool secure = typeid(SocketType) == typeid(ssl_socket);
+    std::string randomFN = randomFilename();
+    FILE* tmpStorage;
+    bool useFileBuffer = false;
     while (true)
     {
         av = socketAvailable(server);
@@ -208,29 +233,52 @@ void handleHTTPSRequest(SocketType& server, RequestHandler* requestHandle = 0)
         }
         try
         {
+            if(recv > 0)
+            {
+                if(useFileBuffer == false)
+                {
+                   tmpStorage = fopen(randomFN.c_str(), "wb");
+                   useFileBuffer = true;
+                }
+                fwrite(buffer, 1, recv, tmpStorage);
+            }
             recv = server.read_some(boost::asio::buffer(buffer, av));
         }
         catch(std::exception e)
         {
             return;
         }
-        if(transfered == 0)
+        if(transferSize == 0)
         {
             request = HttpRequest(std::string((char*)buffer));
-            if(recv > 0 && request.method == "GET")
+            if(recv > 0 && request.method == "GET" && consoleOutput)
             {
                 printf("%s %s %s   %s\n",request.method.c_str(), request.path.c_str(), request.getQuery().c_str(), request.attributes.get("content-type").c_str());
             }
+            else if(recv > 0 && request.method == "POST" && consoleOutput)
+            {
+                printf("%s %s      %s\n",request.method.c_str(), request.path.c_str(), request.attributes.get("content-type").c_str());
+            }
+        }
+        if(recv > 0)
+        {
+            transferSize += recv;
         }
         if(recv <= 0)
         {
             break;
         }
-        transferSize += recv;
     }
     
     if(transferSize > 0)
     {
+        if(transferSize > 2048)
+        {
+            if(recv > 0)
+            {
+                fwrite(buffer, 1, recv, tmpStorage);
+            }
+        }
         transfered = 0;
         snd = 0;
         std::string generatedBody = "";
@@ -241,12 +289,22 @@ void handleHTTPSRequest(SocketType& server, RequestHandler* requestHandle = 0)
             {
                 if(mappedFile.empty())
                 {
-                    generatedBody = requestHandle->getEventResult(request);
+                    if(transferSize > 2048)
+                    {
+                        generatedBody = requestHandle->getEventResult(request, 0, tmpStorage, transferSize);
+                    }
+                    else
+                    {
+                        generatedBody = requestHandle->getEventResult(request, buffer, 0, transferSize);
+                    }
                 }
             }
             if(generatedBody.length() > 0)
             {
-                printf("Custom-Response size:%ld\n", generatedBody.size());
+                if(consoleOutput)
+                {
+                    printf("Custom-Response size:%ld\n", generatedBody.size());
+                }
                 std::string responseHead = generateResponsehead(generatedBody.size(), request);
                 snd = 0;
                 try
@@ -263,6 +321,11 @@ void handleHTTPSRequest(SocketType& server, RequestHandler* requestHandle = 0)
                 }
                 catch(std::exception e)
                 {
+                    if(useFileBuffer)
+                    {
+                        fclose(tmpStorage);
+                        remove(randomFN.c_str());
+                    }
                     return;
                 }
                 snd = 0;
@@ -282,6 +345,11 @@ void handleHTTPSRequest(SocketType& server, RequestHandler* requestHandle = 0)
                 catch(std::exception e)
                 {
 
+                }
+                if(useFileBuffer)
+                {
+                    fclose(tmpStorage);
+                    remove(randomFN.c_str());
                 }
                 return;
             }
@@ -306,7 +374,10 @@ void handleHTTPSRequest(SocketType& server, RequestHandler* requestHandle = 0)
             {
                 snd = 0;
                 std::string notFound = "HTTP/1.1 404 Not Found\r\n\r\n<html><head><title>Not Found 404</title></head><body><h1>Not Found!</h1></body></html>";
-                printf("Not found!\n");
+                if(consoleOutput)
+                {
+                    printf("Not found!\n");
+                }
                 try
                 {
                     while (snd < notFound.length())
@@ -321,7 +392,17 @@ void handleHTTPSRequest(SocketType& server, RequestHandler* requestHandle = 0)
                 }
                 catch(std::exception e)
                 {
+                    if(useFileBuffer)
+                    {
+                        fclose(tmpStorage);
+                        remove(randomFN.c_str());
+                    }
                     return;
+                }
+                if(useFileBuffer)
+                {
+                    fclose(tmpStorage);
+                    remove(randomFN.c_str());
                 }
                 return;
             }
@@ -330,7 +411,10 @@ void handleHTTPSRequest(SocketType& server, RequestHandler* requestHandle = 0)
             {
                 snd = 0;
                 std::string notFound = "HTTP/1.1 404 Not Found\r\n\r\n<html><head><title>Not Found 404</title></head><body><h1>Not Found!</h1></body></html>";
-                printf("Not found!\n");
+                if(consoleOutput)
+                {
+                    printf("Not found!\n");
+                }
                 try
                 {
                     while (snd < notFound.length())
@@ -345,13 +429,26 @@ void handleHTTPSRequest(SocketType& server, RequestHandler* requestHandle = 0)
                 }
                 catch(std::exception e)
                 {
+                    if(useFileBuffer)
+                    {
+                        fclose(tmpStorage);
+                        remove(randomFN.c_str());
+                    }
                     return;
+                }
+                if(useFileBuffer)
+                {
+                    fclose(tmpStorage);
+                    remove(randomFN.c_str());
                 }
                 return;
             }
             fseek(f, 0L, SEEK_END);
             long size = ftell(f);
-            printf("Size:%ld\n", size);
+            if(consoleOutput)
+            {
+                printf("Size:%ld\n", size);
+            }
             fseek(f, 0L, SEEK_SET);
             std::string responseHead = generateResponsehead(size, request);
             snd = 0;
@@ -370,6 +467,11 @@ void handleHTTPSRequest(SocketType& server, RequestHandler* requestHandle = 0)
             catch(std::exception e)
             {
                 fclose(f);
+                if(useFileBuffer)
+                {
+                    fclose(tmpStorage);
+                    remove(randomFN.c_str());
+                }
                 return;
             }
             long r = 0;
@@ -403,6 +505,11 @@ void handleHTTPSRequest(SocketType& server, RequestHandler* requestHandle = 0)
             catch(std::exception e)
             {
                 fclose(f);
+                if(useFileBuffer)
+                {
+                    fclose(tmpStorage);
+                    remove(randomFN.c_str());
+                }
                 return;
             }
             fclose(f);
@@ -411,7 +518,10 @@ void handleHTTPSRequest(SocketType& server, RequestHandler* requestHandle = 0)
         {
             snd = 0;
             std::string notFound = "HTTP/1.1 404 Not Found\r\n\r\n<html><head><title>Not Found 404</title></head><body><h1>Not Found!</h1></body></html>";
-            printf("Not found!\n");
+            if(consoleOutput)
+            {
+                printf("Not found!\n");
+            }
             try
             {
                 while (snd < notFound.length())
@@ -426,12 +536,26 @@ void handleHTTPSRequest(SocketType& server, RequestHandler* requestHandle = 0)
             }
             catch(std::exception e)
             {
+                if(useFileBuffer)
+                {
+                    fclose(tmpStorage);
+                    remove(randomFN.c_str());
+                }
                 return;
+            }
+            if(useFileBuffer)
+            {
+                fclose(tmpStorage);
+                remove(randomFN.c_str());
             }
             return;
         }
     }
-
+    if(useFileBuffer)
+    {
+        fclose(tmpStorage);
+        remove(randomFN.c_str());
+    }
 }
 
 class Webserver
@@ -462,7 +586,7 @@ class Webserver
 
     RequestHandler customRequests;
 
-    void bindEvent(std::string requestPath, std::string requestMethod, std::string(*event)(HttpRequest& request))
+    void bindEvent(std::string requestPath, std::string requestMethod, std::string(*event)(HttpRequest& request, unsigned char* requestBodyBuffer, FILE* requestBodyFile, size_t bufferSize))
     {
         std::string meth = toUppercase(requestMethod);
         customRequests.setPathEvent(requestPath, meth, event);
@@ -477,7 +601,7 @@ class Webserver
         }
     }
 
-    void run(int port, bool https = true)
+    void run(int port, bool https = true, bool consoleOutput = true)
     {
         if(https)
         {
@@ -500,17 +624,20 @@ class Webserver
                     socket.handshake(boost::asio::ssl::stream_base::handshake_type::server);
                     if(customRequests.size() > 0)
                     {
-                        handleHTTPSRequest(socket, &customRequests);
+                        handleHTTPSRequest(socket, &customRequests, consoleOutput);
                     }
                     else
                     {
-                        handleHTTPSRequest(socket);
+                        handleHTTPSRequest(socket, 0, consoleOutput);
                     }
                     socket.next_layer().close();
                 }
                 catch(const std::exception& e)
                 {
-                    printf("Connection Error!\n");
+                    if(consoleOutput)
+                    {
+                        printf("Connection Error!\n");
+                    }
                 }
             }
 
@@ -528,17 +655,20 @@ class Webserver
                     acceptor.accept(socket);
                     if(customRequests.size() > 0)
                     {
-                        handleHTTPSRequest(socket, &customRequests);
+                        handleHTTPSRequest(socket, &customRequests, consoleOutput);
                     }
                     else
                     {
-                        handleHTTPSRequest(socket);
+                        handleHTTPSRequest(socket, 0, consoleOutput);
                     }
                     socket.close();
                 }
                 catch(const std::exception& e)
                 {
-                    printf("Connection Error!\n");
+                    if(consoleOutput)
+                    {
+                        printf("Connection Error!\n");
+                    }
                 }
             }
         }
