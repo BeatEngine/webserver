@@ -35,6 +35,7 @@ int main(int args, char** argv)
     }
     Webserver server;
     server.bindEvent("/event", "GET", customRequestEvent);
+    server.bindFile("/source.cpp", "get", "./main.cpp");
     if(port == 80)
     {
         secure = false;

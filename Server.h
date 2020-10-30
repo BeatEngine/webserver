@@ -13,6 +13,82 @@ std::string generateResponsehead(long sizeBytes, HttpRequest& request, std::stri
     {
         customAttribute += "\r\n";
     }
+    std::string suffix = request.getSuffix();
+    if(!request.attributes.contains("content-type"))
+    {
+        if(suffix == ".txt")
+        {
+            type = "text/plain";
+        }
+        else if(suffix == ".csv")
+        {
+            type = "text/"+suffix.substr(1);
+        }
+        else if(suffix == ".css")
+        {
+            type = "text/"+suffix.substr(1);
+        }
+        else if(suffix == ".js")
+        {
+            type = "text/javascript";
+        }
+        else if(suffix == ".jpg")
+        {
+            type = "image/"+suffix.substr(1);
+        }
+        else if(suffix == ".jpge")
+        {
+            type = "image/"+suffix.substr(1);
+        }
+        else if(suffix == ".png")
+        {
+            type = "image/"+suffix.substr(1);
+        }
+        else if(suffix == ".ico")
+        {
+            type = "image/"+suffix.substr(1);
+        }
+        else if(suffix == ".gif")
+        {
+            type = "image/"+suffix.substr(1);
+        }
+        else if(suffix == ".svg")
+        {
+            type = "image/"+suffix.substr(1);
+        }
+        else if(suffix == ".tiff")
+        {
+            type = "image/"+suffix.substr(1);
+        }
+        else if(suffix == ".webp")
+        {
+            type = "image/"+suffix.substr(1);
+        }
+        else if(suffix == ".wav")
+        {
+            type = "audio/"+suffix.substr(1);
+        }
+        else if(suffix == ".mp3")
+        {
+            type = "audio/"+suffix.substr(1);
+        }
+        else if(suffix == ".mp4")
+        {
+            type = "video/"+suffix.substr(1);
+        }
+        else if(suffix == ".ogg")
+        {
+            type = "video/"+suffix.substr(1);
+        }
+        else if(suffix == ".webm")
+        {
+            type = "video/"+suffix.substr(1);
+        }
+        else if(suffix != ".html" && suffix != ".htm" && suffix != ".php"  && suffix.length() > 1)
+        {
+            type = "application/"+suffix.substr(1);
+        }
+    }
     std::string response = "HTTP/1.1 200 OK\r\n";
     response += "content-type: " + type + "\r\n" + "content-length: " + std::to_string(sizeBytes) + "\r\n" + "Server: BeatEngine-Webserver\r\n" + customAttribute + "\r\n";
     return response;
@@ -33,6 +109,7 @@ class RequestHandler
     std::vector<std::string> paths;
     std::vector<void*> events;
     std::vector<std::string> methods;
+    std::vector<std::string> filePath;
     public:
 
     RequestHandler(){};
@@ -42,14 +119,27 @@ class RequestHandler
         paths.push_back(path);
         methods.push_back(method);
         events.push_back((void*)event);
+        filePath.push_back("");
     }
 
-    bool containsPath(std::string& path, std::string& method)
+    void setPathFileMapping(std::string& path, std::string& method, std::string& pathToFile)
+    {
+        paths.push_back(path);
+        methods.push_back(method);
+        events.push_back(0);
+        filePath.push_back(pathToFile);
+    }
+
+    bool containsPath(std::string& path, std::string& method, std::string* returnMappedFilePath)
     {
         for(int i = 0; i < paths.size(); i++)
         {
             if(paths[i] == path && methods[i] == method)
             {
+                if(returnMappedFilePath)
+                {
+                    *returnMappedFilePath = filePath[i];
+                }
                 return true;
             }
         }
@@ -138,20 +228,25 @@ void handleHTTPSRequest(SocketType& server, RequestHandler* requestHandle = 0)
         }
         transferSize += recv;
     }
+    
     if(transferSize > 0)
     {
         transfered = 0;
         snd = 0;
         std::string generatedBody = "";
+        std::string mappedFile = "";
         if(requestHandle)
         {
-            if(requestHandle->containsPath(request.path, request.method))
+            if(requestHandle->containsPath(request.path, request.method, &mappedFile))
             {
-                generatedBody = requestHandle->getEventResult(request);
+                if(mappedFile.empty())
+                {
+                    generatedBody = requestHandle->getEventResult(request);
+                }
             }
             if(generatedBody.length() > 0)
             {
-                printf("Custom-Response size:%d\n", generatedBody.size());
+                printf("Custom-Response size:%ld\n", generatedBody.size());
                 std::string responseHead = generateResponsehead(generatedBody.size(), request);
                 snd = 0;
                 try
@@ -203,6 +298,10 @@ void handleHTTPSRequest(SocketType& server, RequestHandler* requestHandle = 0)
                 //path = path.substr(1);
                 path = "WEB" + path;
             }
+            if(!mappedFile.empty())
+            {
+                path = mappedFile;
+            }
             if(access(path.c_str(), F_OK ) == -1)
             {
                 snd = 0;
@@ -252,7 +351,7 @@ void handleHTTPSRequest(SocketType& server, RequestHandler* requestHandle = 0)
             }
             fseek(f, 0L, SEEK_END);
             long size = ftell(f);
-            printf("Size:%d\n", size);
+            printf("Size:%ld\n", size);
             fseek(f, 0L, SEEK_SET);
             std::string responseHead = generateResponsehead(size, request);
             snd = 0;
@@ -350,6 +449,11 @@ class Webserver
         return input;
     }
 
+    inline bool fileExist(std::string& path)
+    {
+        return access( path.c_str(), F_OK ) != -1;
+    }
+
     public:
     Webserver()
     {
@@ -362,6 +466,15 @@ class Webserver
     {
         std::string meth = toUppercase(requestMethod);
         customRequests.setPathEvent(requestPath, meth, event);
+    }
+
+    void bindFile(std::string requestPath, std::string requestMethod, std::string filePath)
+    {
+        std::string meth = toUppercase(requestMethod);
+        if(fileExist(filePath))
+        {
+            customRequests.setPathFileMapping(requestPath, meth, filePath);
+        }
     }
 
     void run(int port, bool https = true)

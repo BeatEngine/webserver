@@ -150,6 +150,18 @@ public:
         return result;
     }
 
+    std::string getSuffix()
+    {
+        for(int i = path.length()-1; i > 0; i--)
+        {
+            if(path[i] == '.')
+            {
+                return path.substr(i);
+            }
+        }
+        return "";
+    }
+
     std::string toString()
     {
         std::string generatedHeader = method + " " + path;
