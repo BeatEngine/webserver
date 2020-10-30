@@ -142,7 +142,7 @@ class RequestHandler
                 }
                 return true;
             }
-            else if(paths[i].find("*") == paths[i].length()-1)
+            else if(paths[i].substr(paths[i].length()-1) == "*" && paths[i].length()-1 <= path.length())
             {
                 if(paths[i].substr(0, paths[i].length()-1) == path.substr(0, paths[i].length()-1) && methods[i] == method)
                 {
@@ -165,7 +165,7 @@ class RequestHandler
             {
                 return ((std::string(*)(HttpRequest& request, unsigned char* requestBodyBuffer, FILE* requestBodyFile, size_t bufferSize))(events[i]))(request, buffer, fbuffer, bufferSize);
             }
-            else if(paths[i].find("*") == paths[i].length()-1)
+            else if(paths[i].substr(paths[i].length()-1) == "*" && paths[i].length()-1 <= request.path.length())
             {
                 if(paths[i].substr(0, paths[i].length()-1) == request.path.substr(0, paths[i].length()-1) && methods[i] == request.method)
                 {

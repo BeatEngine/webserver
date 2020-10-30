@@ -16,6 +16,11 @@ std::string receiveAudioData(HttpRequest& request, unsigned char* body, FILE* bi
     return "OK";
 }
 
+std::string certbotVerification(HttpRequest& request, unsigned char* body, FILE* bigBody, size_t bodySize)
+{
+    return "OK";
+}
+
 
 int main(int args, char** argv)
 {
@@ -75,6 +80,7 @@ int main(int args, char** argv)
     server.bindEvent("/event", "GET", customRequestEvent);
     server.bindFile("/source.cpp", "get", "./main.cpp");
     server.bindEvent("/audio/input", "POST", receiveAudioData);
+    server.bindEvent("/.well-known/acme-challenge/*", "GET", certbotVerification);
     if(port == 80)
     {
         secure = false;
