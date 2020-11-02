@@ -1,6 +1,7 @@
 #ifndef ssl_socket
     #define ssl_socket boost::asio::ssl::stream<boost::asio::ip::tcp::socket>
 #endif
+#include "StringUtils.h"
 class StringMap
 {
     std::vector<std::string> keys;
@@ -91,7 +92,6 @@ class StringMap
     }
 };
 
-
 class HttpRequest
 {
 
@@ -125,6 +125,8 @@ public:
     std::string method;
     StringMap attributes;
     StringMap parameters;
+    StringMap cookies;
+
 
     HttpRequest()
     {
@@ -197,6 +199,18 @@ public:
                 generatedHeader += "\r\n";
             }
         }
+        for(int i = 0; i < cookies.size(); i++)
+        {
+            if(i == 0)
+            {
+                generatedHeader += "cookie: ";
+            }
+            generatedHeader += cookies.keyAt(i) + "=" + cookies[i];
+            if(i+1 < cookies.size())
+            {
+                generatedHeader += "; ";
+            }
+        }
         generatedHeader += "\r\n";
         return generatedHeader;
     }
@@ -257,9 +271,9 @@ public:
                     {
                         if(atr == 0)
                         {
-                        method = lines.at(0).substr(a, o-a);
-                        method = toUpperCase(method);
-                        a = o + 1;
+                            method = lines.at(0).substr(a, o-a);
+                            method = toUpperCase(method);
+                            a = o + 1;
                         }
                         else if(atr == 1)
                         {
@@ -327,6 +341,54 @@ public:
                     }
                 }
 
+            }
+        }
+
+        if(attributes.contains("Cookie"))
+        {
+            std::string tmpc = attributes.get("Cookie");
+            std::vector<std::string> pairs = StringUtils::split(tmpc, ";");
+            for(int i = 0; i < pairs.size(); i++)
+            {
+                std::vector<std::string> pair = StringUtils::split(pairs[i], "=");
+                if(pair.size() == 2)
+                {
+                    if(pair[0][0] == ' ')
+                    {
+                        pair[0] = pair[0].substr(1);
+                    }
+                    if(pair[1][0] == ' ')
+                    {
+                        pair[1] = pair[1].substr(1);
+                    }
+                    if(pair[0].size() > 0)
+                    {
+                        cookies.put(pair[0], pair[1]);
+                    }
+                }
+            }
+        } else if(attributes.contains("cookie"))
+        {
+            std::string tmpc = attributes.get("cookie");
+            std::vector<std::string> pairs = StringUtils::split(tmpc, ";");
+            for(int i = 0; i < pairs.size(); i++)
+            {
+                std::vector<std::string> pair = StringUtils::split(pairs[i], "=");
+                if(pair.size() == 2)
+                {
+                    if(pair[0][0] == ' ')
+                    {
+                        pair[0] = pair[0].substr(1);
+                    }
+                    if(pair[1][0] == ' ')
+                    {
+                        pair[1] = pair[1].substr(1);
+                    }
+                    if(pair[0].size() > 0)
+                    {
+                        cookies.put(pair[0], pair[1]);
+                    }
+                }
             }
         }
 

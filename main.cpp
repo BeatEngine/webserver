@@ -8,7 +8,7 @@
 
 std::string customRequestEvent(HttpRequest& request, unsigned char* body, FILE* bigBody, size_t bodySize)
 {
-    return "Custom Body!";
+    return "Custom Body! Your session: " + request.cookies.get("session") + "\n";
 }
 
 std::string receiveAudioData(HttpRequest& request, unsigned char* body, FILE* bigBody, size_t bodySize)
@@ -24,7 +24,7 @@ std::string certbotVerification(HttpRequest& request, unsigned char* body, FILE*
 
 int main(int args, char** argv)
 {
-    int port = 443;
+    int port = 8088;
     bool secure = true;
 
     bool consoleOutput = true;

@@ -1,6 +1,9 @@
 #ifndef ssl_socket
     #define ssl_socket boost::asio::ssl::stream<boost::asio::ip::tcp::socket>
 #endif
+#include <boost/uuid/uuid.hpp>
+#include <boost/uuid/uuid_io.hpp>
+#include <boost/uuid/uuid_generators.hpp>
 
 std::string generateResponsehead(long sizeBytes, HttpRequest& request, std::string customAttribute = "")
 {
@@ -89,8 +92,13 @@ std::string generateResponsehead(long sizeBytes, HttpRequest& request, std::stri
             type = "application/"+suffix.substr(1);
         }
     }
+    std::string cookies = "";
+    for(int i = 0; i < request.cookies.size(); i++)
+    {
+        cookies += "Set-Cookie: " + request.cookies.keyAt(i) + "=" + request.cookies[i] + "\r\n";
+    }
     std::string response = "HTTP/1.1 200 OK\r\n";
-    response += "content-type: " + type + "\r\n" + "content-length: " + std::to_string(sizeBytes) + "\r\n" + "Server: BeatEngine-Webserver\r\n" + customAttribute + "\r\n";
+    response += "content-type: " + type + "\r\n" + "content-length: " + std::to_string(sizeBytes) + "\r\n" + "Server: BeatEngine-Webserver\r\n" + customAttribute + cookies  + "\r\n";
     return response;
 }
 
@@ -206,7 +214,7 @@ std::string randomFilename(int length = 10)
 }
 
 template<class SocketType>
-void handleHTTPSRequest(SocketType& server, RequestHandler* requestHandle = 0, bool consoleOutput = true)
+void handleHTTPSRequest(SocketType& server, RequestHandler* requestHandle = 0, bool consoleOutput = true, std::string* sessionCookieKeyValuePair = 0)
 {
     unsigned char buffer[2048];
     int recv = 0;
@@ -303,6 +311,42 @@ void handleHTTPSRequest(SocketType& server, RequestHandler* requestHandle = 0, b
         std::string mappedFile = "";
         if(requestHandle)
         {
+            if(request.cookies.size() > 0)
+            {
+                if(sessionCookieKeyValuePair)
+                {
+                    bool setCookie = false;
+                    for(int i = 0; i < request.cookies.size(); i++)
+                    {
+                        if(request.cookies.keyAt(i) == sessionCookieKeyValuePair[0])
+                        {
+                            request.cookies.set(sessionCookieKeyValuePair[0], sessionCookieKeyValuePair[1]);
+                            setCookie = true;
+                            break;
+                        }
+                    }
+                    if(!setCookie)
+                    {
+                        request.cookies.put(sessionCookieKeyValuePair[0], sessionCookieKeyValuePair[1]);
+                    }
+                }
+            }
+            else if(sessionCookieKeyValuePair)
+            {
+                if(!request.cookies.set(sessionCookieKeyValuePair[0], sessionCookieKeyValuePair[1]))
+                {
+                    request.cookies.put(sessionCookieKeyValuePair[0], sessionCookieKeyValuePair[1]);
+                }
+            }
+            else
+            {
+                boost::uuids::random_generator_pure gen;
+                boost::uuids::uuid gid = gen();
+                if(!request.cookies.set("session", boost::uuids::to_string(gid)))
+                {
+                    request.cookies.put("session", boost::uuids::to_string(gid));
+                }
+            }
             if(requestHandle->containsPath(request.path, request.method, &mappedFile))
             {
                 if(mappedFile.empty())
@@ -323,6 +367,8 @@ void handleHTTPSRequest(SocketType& server, RequestHandler* requestHandle = 0, b
                 {
                     printf("Custom-Response size:%ld\n", generatedBody.size());
                 }
+                
+                
                 std::string responseHead = generateResponsehead(generatedBody.size(), request);
                 snd = 0;
                 try
@@ -468,6 +514,42 @@ void handleHTTPSRequest(SocketType& server, RequestHandler* requestHandle = 0, b
                 printf("Size:%ld\n", size);
             }
             fseek(f, 0L, SEEK_SET);
+            if(request.cookies.size() > 0)
+            {
+                if(sessionCookieKeyValuePair)
+                {
+                    bool setCookie = false;
+                    for(int i = 0; i < request.cookies.size(); i++)
+                    {
+                        if(request.cookies.keyAt(i) == sessionCookieKeyValuePair[0])
+                        {
+                            request.cookies.set(sessionCookieKeyValuePair[0], sessionCookieKeyValuePair[1]);
+                            setCookie = true;
+                            break;
+                        }
+                    }
+                    if(!setCookie)
+                    {
+                        request.cookies.put(sessionCookieKeyValuePair[0], sessionCookieKeyValuePair[1]);
+                    }
+                }
+            }
+            else if(sessionCookieKeyValuePair)
+            {
+                if(!request.cookies.set(sessionCookieKeyValuePair[0], sessionCookieKeyValuePair[1]))
+                {
+                    request.cookies.put(sessionCookieKeyValuePair[0], sessionCookieKeyValuePair[1]);
+                }
+            }
+            else
+            {
+                boost::uuids::random_generator_pure gen;
+                boost::uuids::uuid gid = gen();
+                if(!request.cookies.set("session", boost::uuids::to_string(gid)))
+                {
+                    request.cookies.put("session", boost::uuids::to_string(gid));
+                }
+            }
             std::string responseHead = generateResponsehead(size, request);
             snd = 0;
             try
@@ -596,6 +678,21 @@ class Webserver
         return access( path.c_str(), F_OK ) != -1;
     }
 
+    std::vector<std::string> sessions;
+
+    bool addSession(std::string ip)
+    {
+        for(int i = 0; i < sessions.size(); i++)
+        {
+            if(sessions[i] == ip)
+            {
+                return false;
+            }
+        }
+        sessions.push_back(ip);
+        return true;
+    }
+
     public:
     Webserver()
     {
@@ -640,13 +737,38 @@ class Webserver
                     ssl_socket socket(io_service, ssl_context);
                     acceptorV4.accept(socket.next_layer());
                     socket.handshake(boost::asio::ssl::stream_base::handshake_type::server);
+                    bool isNewClient = addSession(socket.next_layer().remote_endpoint().address().to_string());
                     if(customRequests.size() > 0)
                     {
-                        handleHTTPSRequest(socket, &customRequests, consoleOutput);
+                        if(isNewClient)
+                        {
+                            boost::uuids::random_generator_pure gen;
+                            boost::uuids::uuid gid = gen();
+                            std::string sessionCookie[2];
+                            sessionCookie[0] = "session";
+                            sessionCookie[1] = boost::uuids::to_string(gid);
+                            handleHTTPSRequest(socket, &customRequests, consoleOutput, sessionCookie);
+                        }
+                        else
+                        {
+                            handleHTTPSRequest(socket, &customRequests, consoleOutput);
+                        }
                     }
                     else
                     {
-                        handleHTTPSRequest(socket, 0, consoleOutput);
+                        if(isNewClient)
+                        {
+                            boost::uuids::random_generator_pure gen;
+                            boost::uuids::uuid gid = gen();
+                            std::string sessionCookie[2];
+                            sessionCookie[0] = "session";
+                            sessionCookie[1] = boost::uuids::to_string(gid);
+                            handleHTTPSRequest(socket, 0, consoleOutput, sessionCookie);
+                        }
+                        else
+                        {
+                            handleHTTPSRequest(socket, 0, consoleOutput);
+                        }
                     }
                     socket.next_layer().close();
                 }
@@ -671,13 +793,38 @@ class Webserver
                 {
                     boost::asio::ip::tcp::socket socket(io_service);
                     acceptor.accept(socket);
+                    bool isNewClient = addSession(socket.remote_endpoint().address().to_string());
                     if(customRequests.size() > 0)
                     {
-                        handleHTTPSRequest(socket, &customRequests, consoleOutput);
+                        if(isNewClient)
+                        {
+                            boost::uuids::random_generator_pure gen;
+                            boost::uuids::uuid gid = gen();
+                            std::string sessionCookie[2];
+                            sessionCookie[0] = "session";
+                            sessionCookie[1] = boost::uuids::to_string(gid);
+                            handleHTTPSRequest(socket, &customRequests, consoleOutput, sessionCookie);
+                        }
+                        else
+                        {
+                            handleHTTPSRequest(socket, &customRequests, consoleOutput);
+                        }
                     }
                     else
                     {
-                        handleHTTPSRequest(socket, 0, consoleOutput);
+                        if(isNewClient)
+                        {
+                            boost::uuids::random_generator_pure gen;
+                            boost::uuids::uuid gid = gen();
+                            std::string sessionCookie[2];
+                            sessionCookie[0] = "session";
+                            sessionCookie[1] = boost::uuids::to_string(gid);
+                            handleHTTPSRequest(socket, 0, consoleOutput, sessionCookie);
+                        }
+                        else
+                        {
+                            handleHTTPSRequest(socket, 0, consoleOutput);
+                        }
                     }
                     socket.close();
                 }
