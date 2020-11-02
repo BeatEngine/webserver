@@ -24,7 +24,7 @@ std::string certbotVerification(HttpRequest& request, unsigned char* body, FILE*
 
 int main(int args, char** argv)
 {
-    int port = 8088;
+    int port = 443;
     bool secure = true;
 
     bool consoleOutput = true;
