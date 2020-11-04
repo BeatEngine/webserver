@@ -4,8 +4,10 @@
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/uuid_io.hpp>
 #include <boost/uuid/uuid_generators.hpp>
-
+#include <boost/filesystem.hpp>
 #include "templateEngine.h"
+
+
 
 std::string generateResponsehead(long sizeBytes, HttpRequest& request, std::string customAttribute = "")
 {
@@ -124,7 +126,7 @@ class RequestHandler
     std::vector<bool> istemplate;
 
     /* Syntax like thymeleaf */
-    std::string processTemplate(HttpRequest& request, unsigned char* buffer, FILE* fbuffer, size_t bufferSize, std::string templateFilePath)
+    std::string processTemplate(HttpRequest& request, unsigned char* buffer, FILE* fbuffer, size_t bufferSize, std::string templateFilePath, int index = 0)
     {
         std::string html;
         char tmp[2048];
@@ -151,7 +153,15 @@ class RequestHandler
         if(html.size() > 0)
         {
             htmlDocument document(html);
-            return document.toString() + "\r\n";
+
+            std::string result = document.toString();
+
+            for(int isz = 0; isz < templateVariables[index].size(); isz++)
+            {
+                StringUtils::replace(result, "[[" + templateVariables[index].keyAt(isz) + "]]", templateVariables[index][(long)isz]);
+            }
+
+            return result + "\r\n";
         }
         return "Not Valid Template";
     }
@@ -237,7 +247,7 @@ class RequestHandler
             {
                 if(istemplate[i])
                 {
-                    return processTemplate(request, buffer, fbuffer, bufferSize, filePath[i]);
+                    return processTemplate(request, buffer, fbuffer, bufferSize, filePath[i], i);
                 }
                 return ((std::string(*)(HttpRequest& request, unsigned char* requestBodyBuffer, FILE* requestBodyFile, size_t bufferSize))(events[i]))(request, buffer, fbuffer, bufferSize);
             }
@@ -294,7 +304,7 @@ void handleHTTPSRequest(SocketType& server, RequestHandler* requestHandle = 0, b
     long av;
     HttpRequest request;
     bool secure = typeid(SocketType) == typeid(ssl_socket);
-    std::string randomFN = randomFilename();
+    std::string randomFN = "tmp/" + randomFilename();
     FILE* tmpStorage;
     bool useFileBuffer = false;
     while (true)
@@ -804,6 +814,10 @@ class Webserver
 
     void run(int port, bool https = true, bool consoleOutput = true)
     {
+        if(!boost::filesystem::exists(boost::filesystem::path("./tmp")))
+        {
+            boost::filesystem::create_directory(boost::filesystem::path("./tmp"));
+        }
         if(https)
         {
             boost::asio::ip::tcp::endpoint serverV4(boost::asio::ip::tcp::v4(), port);

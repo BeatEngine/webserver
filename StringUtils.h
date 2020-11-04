@@ -97,6 +97,50 @@ class StringUtils
 {
 public:
 
+    static std::string substring(std::string& str, long a, long b = 999999999999999)
+    {
+        std::string result = "";
+        for(int i = a; i < str.size() && i < b; i++)
+        {
+            result.append(1, str[i]);
+        }
+        return result;
+    }
+
+    static std::string substring(std::string* str, long a, long b = 999999999999999)
+    {
+        std::string result = "";
+        for(int i = a; i < str->size() && i < b; i++)
+        {
+            result.append(1, str->at(i));
+        }
+        return result;
+    }
+
+    static void replace(std::string& str, std::string pattern, std::string replacement)
+    {
+        int a;
+        for(int i = 0; i < str.size(); i++)
+        {
+            int p = 0;
+            for(p = 0; p < pattern.size(); p++)
+            {
+                if(str[i+p] != pattern[p])
+                {
+                    p = 0;
+                    break;
+                }
+            }
+            if(p != 0)
+            {
+                std::string tmps = "";
+                tmps = substring(str, i + pattern.size());
+                str = substring(str, 0, i);
+                str.append(replacement);
+                str.append(tmps);
+            }
+        }
+    }
 
 	static std::vector<std::string> split(std::string& str, std::string sepperator, bool keepInternalStrings = false)
 	{
