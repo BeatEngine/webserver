@@ -5,6 +5,8 @@
 #include <boost/uuid/uuid_io.hpp>
 #include <boost/uuid/uuid_generators.hpp>
 
+#include "templateEngine.h"
+
 std::string generateResponsehead(long sizeBytes, HttpRequest& request, std::string customAttribute = "")
 {
     std::string type = "text/html; charset=utf-8";
@@ -118,6 +120,42 @@ class RequestHandler
     std::vector<void*> events;
     std::vector<std::string> methods;
     std::vector<std::string> filePath;
+    std::vector<StringMap> templateVariables;
+    std::vector<bool> istemplate;
+
+    /* Syntax like thymeleaf */
+    std::string processTemplate(HttpRequest& request, unsigned char* buffer, FILE* fbuffer, size_t bufferSize, std::string templateFilePath)
+    {
+        std::string html;
+        char tmp[2048];
+        html = "";
+        long sz = 0;
+        long s;
+        FILE* tmpf = fopen(templateFilePath.c_str(), "r");
+        fseek(tmpf, 0L, SEEK_END);
+        long fsz = ftell(tmpf);
+        fseek(tmpf, 0L, SEEK_SET);
+        do
+        {
+            if(fsz > 2048)
+            {
+                s = fread(tmp, 1, 2048, tmpf);
+            }
+            else
+            {
+                s = fread(tmp, 1, fsz, tmpf);
+            }
+            sz += s;
+            html.append(tmp, s);
+        }while(sz < fsz);
+        if(html.size() > 0)
+        {
+            htmlDocument document(html);
+            return document.toString() + "\r\n";
+        }
+        return "Not Valid Template";
+    }
+
     public:
 
     RequestHandler(){};
@@ -128,6 +166,8 @@ class RequestHandler
         methods.push_back(method);
         events.push_back((void*)event);
         filePath.push_back("");
+        istemplate.push_back(false);
+        templateVariables.push_back(StringMap());
     }
 
     void setPathFileMapping(std::string& path, std::string& method, std::string& pathToFile)
@@ -136,6 +176,18 @@ class RequestHandler
         methods.push_back(method);
         events.push_back(0);
         filePath.push_back(pathToFile);
+        istemplate.push_back(false);
+        templateVariables.push_back(StringMap());
+    }
+
+    void setTemplateMapping(std::string& path, std::string& method, std::string& pathToFile, StringMap& values)
+    {
+        paths.push_back(path);
+        methods.push_back(method);
+        events.push_back(0);
+        filePath.push_back(pathToFile);
+        istemplate.push_back(true);
+        templateVariables.push_back(values);
     }
 
     bool containsPath(std::string& path, std::string& method, std::string* returnMappedFilePath)
@@ -165,12 +217,28 @@ class RequestHandler
         return false;
     }
 
+    bool isTemplate(std::string& path, std::string& method)
+    {
+        for(int i = 0; i < paths.size(); i++)
+        {
+            if(paths[i] == path && methods[i] == method)
+            {
+                return istemplate[i];
+            }
+        }
+        return false;
+    }
+
     std::string getEventResult(HttpRequest& request, unsigned char* buffer, FILE* fbuffer, size_t bufferSize)
     {
         for(int i = 0; i < paths.size(); i++)
         {
-            if(paths[i] == request.path && methods[i] == request.method && events[i] != 0)
+            if(paths[i] == request.path && methods[i] == request.method && (events[i] != 0 || istemplate[i]))
             {
+                if(istemplate[i])
+                {
+                    return processTemplate(request, buffer, fbuffer, bufferSize, filePath[i]);
+                }
                 return ((std::string(*)(HttpRequest& request, unsigned char* requestBodyBuffer, FILE* requestBodyFile, size_t bufferSize))(events[i]))(request, buffer, fbuffer, bufferSize);
             }
             else if(paths[i].substr(paths[i].length()-1) == "*" && paths[i].length()-1 <= request.path.length())
@@ -180,6 +248,7 @@ class RequestHandler
                     return ((std::string(*)(HttpRequest& request, unsigned char* requestBodyBuffer, FILE* requestBodyFile, size_t bufferSize))(events[i]))(request, buffer, fbuffer, bufferSize);
                 }
             }
+            
         }
         return "";
     }
@@ -349,7 +418,7 @@ void handleHTTPSRequest(SocketType& server, RequestHandler* requestHandle = 0, b
             }
             if(requestHandle->containsPath(request.path, request.method, &mappedFile))
             {
-                if(mappedFile.empty())
+                if(mappedFile.empty() || requestHandle->isTemplate(request.path, request.method))
                 {
                     if(transferSize > 2048)
                     {
@@ -713,6 +782,23 @@ class Webserver
         if(fileExist(filePath))
         {
             customRequests.setPathFileMapping(requestPath, meth, filePath);
+        }
+        else
+        {
+            printf("File Mapping: %s --> %s failed! File doesn't exist.", requestPath.c_str(), filePath.c_str());
+        }
+    }
+
+    void bindTemplate(std::string requestPath, std::string requestMethod, std::string filePath, StringMap templateValueMapping = StringMap())
+    {
+        std::string meth = toUppercase(requestMethod);
+        if(fileExist(filePath))
+        {
+            customRequests.setTemplateMapping(requestPath, meth, filePath, templateValueMapping);
+        }
+        else
+        {
+            printf("Template Mapping: %s --> %s failed! File doesn't exist.", requestPath.c_str(), filePath.c_str());
         }
     }
 

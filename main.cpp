@@ -81,6 +81,11 @@ int main(int args, char** argv)
     server.bindFile("/source.cpp", "get", "./main.cpp");
     server.bindEvent("/audio/input", "POST", receiveAudioData);
     server.bindEvent("/.well-known/acme-challenge/*", "GET", certbotVerification);
+
+    StringMap valueMappingT1;
+    valueMappingT1.put("variable","value");
+    server.bindTemplate("/template", "GET", "./TEMPLATES/template.html", valueMappingT1);
+
     if(port == 80)
     {
         secure = false;
