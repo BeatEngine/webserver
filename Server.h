@@ -154,6 +154,8 @@ class RequestHandler
         {
             htmlDocument document(html);
 
+            document.createTemplate(templateVariables[index]);
+
             std::string result = document.toString();
 
             for(int isz = 0; isz < templateVariables[index].size(); isz++)

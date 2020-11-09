@@ -84,6 +84,7 @@ int main(int args, char** argv)
 
     StringMap valueMappingT1;
     valueMappingT1.put("variable","value");
+    valueMappingT1.put("list","[\"Entry 1\", \"Entry 2\", \"Entry 3\", \"Entry 4\", \"Entry 5\"]");
     server.bindTemplate("/template", "GET", "./TEMPLATES/template.html", valueMappingT1);
 
     if(port == 80)

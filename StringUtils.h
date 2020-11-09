@@ -52,6 +52,21 @@ class StringMap
         return false;
     }
 
+    bool remove(const char* ckey)
+    {
+        std::string key = ckey;
+        for(int i = 0; i < keys.size(); i++)
+        {
+            if(keys[i] == key)
+            {
+                keys.erase(keys.begin()+i);
+                values.erase(keys.begin()+i);
+                return true;
+            }
+        }
+        return false;
+    }
+
     std::string get(std::string key)
     {
         for(int i = 0; i < keys.size(); i++)
@@ -96,6 +111,30 @@ class StringMap
 class StringUtils
 {
 public:
+
+    static bool contains(std::string& str, std::string& pattern, bool caseSensitiv = true, int* index = 0)
+    {
+        int p;
+        for(int i = 0; i < str.size(); i++)
+        {
+            for(p = 0; p < pattern.size(); p++)
+            {
+                if(str[i+p] != pattern[p])
+                {
+                    break;
+                }
+                else if(p == pattern.size()-1)
+                {
+                    if(index)
+                    {
+                        *index = i;
+                    }
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
 
     static std::string substring(std::string& str, long a, long b = 999999999999999)
     {

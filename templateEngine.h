@@ -15,6 +15,7 @@ namespace htmlElement
         std::string name;
         std::string innerText;
         std::vector<Tag> children;
+        Tag* parent;
 
         void loadChildren(std::string& sourceCode, int start, int end)
         {
@@ -90,7 +91,7 @@ namespace htmlElement
                 if(i+1 < inners.size())
                 {
                     innerText += sourceCode.substr(A, (size_t)(inners[i])-A);
-                    children.push_back(Tag(sourceCode, inners[i], inners[i+1]));
+                    children.push_back(Tag(sourceCode, inners[i], inners[i+1], this));
                     A = inners[i+1]+1;
                 }
             }   
@@ -136,16 +137,97 @@ namespace htmlElement
         public:
         Tag()
         {
-
+            parent = 0;
+            children = std::vector<Tag>();
         }
-        Tag(std::string& sourceCode)
+        Tag(std::string& sourceCode, Tag* parent = 0)
         {
+            this->parent = parent;
             load(sourceCode);
         }
 
-        Tag(std::string& sourceCode, int start, int end)
+        Tag(std::string& sourceCode, int start, int end, Tag* parent = 0)
         {
+            this->parent = parent;
             load(sourceCode, start, end);
+        }
+
+        void loadTemplate(StringMap& variables)
+        {
+            int start = 0;
+            int end = 0;
+            std::string pattA = "{{";
+            std::string pattB = "}}";
+
+            if(StringUtils::contains(innerText, pattA, true, &start) && StringUtils::contains(innerText, pattB, true, &end))
+            {
+                if(start < end)
+                {
+                    std::string varName = innerText.substr(start+2, end-start-2);
+                    if(variables.contains(varName))
+                    {
+                        std::string var = variables.get(varName);
+                        if(var.size()>0 && var[0] == '[' && var[var.size()-1] == ']')
+                        {
+                            var = var.substr(1,var.size()-2);
+                            std::vector<std::string> items = StringUtils::split(var, ",", true);
+                            for(int i = 0; i < items.size(); i++)
+                            {
+                                while(items[i].size() > 0 && items[i][0] == ' ')
+                                {
+                                    items[i] = items[i].substr(1);
+                                }
+                                if(items[i].size() > 0 && items[i][0] == '"' && items[i][items[i].size()-1] == '"')
+                                {
+                                    items[i] = items[i].substr(1,items[i].size()-2);
+                                }
+                            }
+                            innerText = "";
+                            for(int i = 0; i < items.size(); i++)
+                            {
+                                std::string src = "<"+name+">"+items[i]+"</"+name+">";
+                                Tag item(src, this);
+                                children.push_back(item);
+                            }
+                            name = "div";
+                            
+                        }
+                        else
+                        {
+                            innerText = innerText.substr(0, start) + variables.get(varName) + innerText.substr(end+2);
+                        }
+                    }
+                }
+            }
+            end = 0;
+            start = 0;
+            for(int i = 0; i < attributes.size(); i++)
+            {
+                std::string atv = attributes[i];
+                if(StringUtils::contains(atv, pattA, true, &start) && StringUtils::contains(atv, pattB, true, &end))
+                {
+                    if(start < end)
+                    {
+                        std::string varName = attributes[i].substr(start+2, end-start-2);
+                        if(variables.contains(varName))
+                        {
+                            if(attributes.keyAt(i) == "text")
+                            {
+                                innerText = variables.get(varName);
+                                attributes.remove("text");
+                            }
+                            else
+                            {
+                                attributes[i] = attributes[i].substr(0, start) + variables.get(varName) + attributes[i].substr(end+2);
+                            }
+                        }
+                    }
+                }
+            }
+            for(int i = 0; i < children.size(); i++)
+            {
+                children[i].loadTemplate(variables);
+            }
         }
 
         std::string toString()
@@ -285,6 +367,11 @@ class htmlDocument
     void load(std::string& html)
     {
         root = htmlElement::Tag(html);
+    }
+
+    void createTemplate(StringMap& variables)
+    {
+        root.loadTemplate(variables);
     }
 
     std::string toString()
