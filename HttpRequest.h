@@ -30,6 +30,54 @@ class HttpRequest
         return input;
     }
 
+    std::string urlEncode(std::string& str)
+    {
+        std::string new_str = "";
+        char c;
+        int ic;
+        const char* chars = str.c_str();
+        char bufHex[10];
+        int len = strlen(chars);
+
+        for(int i=0;i<len;i++){
+            c = chars[i];
+            ic = c;
+            // uncomment this if you want to encode spaces with +
+            /*if (c==' ') new_str += '+';   
+            else */if (isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') new_str += c;
+            else {
+                sprintf(bufHex,"%X",c);
+                if(ic < 16) 
+                    new_str += "%0"; 
+                else
+                    new_str += "%";
+                new_str += bufHex;
+            }
+        }
+        return new_str;
+    }
+
+    std::string urlDecode(std::string& str)
+    {
+        std::string ret;
+        char ch;
+        int i, ii, len = str.length();
+        for (i=0; i < len; i++){
+            if(str[i] != '%'){
+                if(str[i] == '+')
+                    ret += ' ';
+                else
+                    ret += str[i];
+            }else{
+                sscanf(str.substr(i + 1, 2).c_str(), "%x", &ii);
+                ch = static_cast<char>(ii);
+                ret += ch;
+                i = i + 2;
+            }
+        }
+        return ret;
+    }
+
 public:
 
     std::string path;
@@ -255,6 +303,44 @@ public:
             }
         }
 
+        if(method == "POST")
+        {
+            for(int i = 0; i < plainRequest.length(); i++)
+            {
+                if(plainRequest.at(i) == '\n' && plainRequest.at(i-1) == '\r' && plainRequest.at(i-2) == '\n' && plainRequest.at(i-3) == '\r')
+                {
+                    i++;
+                    std::string tparas = "";
+                    while(i < plainRequest.length())
+                    {
+                        if(plainRequest[i] != '&' && (plainRequest[i] == 0 || plainRequest[i] == ' ' || plainRequest[i] == '\t' || (plainRequest[i] != '%' && (plainRequest[i] < 48 || plainRequest[i] > 122 || (plainRequest[i] > 91 && plainRequest[i] < 97) ))))
+                        {
+                            break;
+                        }
+                        tparas += plainRequest[i];
+                        i++;
+                    }
+                    printf("Body: %s\n", tparas.c_str());
+                    std::vector<std::string> params = StringUtils::split(tparas, "&");
+                    for(int i = 0; i < params.size(); i++)
+                    {
+                        std::vector<std::string> pair = StringUtils::split(params[i], "=");
+                        if(pair.size() == 2)
+                        {
+                            parameters.put(pair[0], pair[1]);
+                        }
+                    }
+
+                    break;
+                }
+            }
+            printf("params: %d\n", parameters.size());
+            for(int i = 0; i < parameters.size(); i++)
+            {
+                printf("[%d]: %s = %s\n", i,parameters.keyAt(i).c_str(), parameters[i].c_str());
+            }
+        }
+
         if(attributes.contains("Cookie"))
         {
             std::string tmpc = attributes.get("Cookie");
@@ -301,6 +387,12 @@ public:
                     }
                 }
             }
+        }
+        std::string tmpp;
+        for(int i = 0; i < parameters.size(); i++)
+        {
+            tmpp = parameters[i];
+            parameters.set(parameters.keyAt(i), urlDecode(tmpp));
         }
 
     }

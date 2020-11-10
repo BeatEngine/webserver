@@ -19,6 +19,14 @@ std::string certbotVerification(HttpRequest& request, unsigned char* body, FILE*
     return "OK";
 }
 
+std::string sum(HttpRequest& request, unsigned char* body, FILE* bigBody, size_t bodySize)
+{
+    
+    float a = (float)atof(request.parameters.get("a").c_str());
+    float b = (float)atof(request.parameters.get("b").c_str());
+    return std::to_string(a+b);
+}
+
 
 int main(int args, char** argv)
 {
@@ -86,7 +94,7 @@ int main(int args, char** argv)
     valueMappingT1.put("variable","value");
     valueMappingT1.put("list","[\"Entry 1\", \"Entry 2\", \"Entry 3\", \"Entry 4\", \"Entry 5\"]");
     server.bindTemplate("/template", "GET", "./TEMPLATES/template.html", valueMappingT1);
-
+    server.bindEvent("/add", "POST", sum);
     if(port == 80)
     {
         secure = false;
