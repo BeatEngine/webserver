@@ -830,43 +830,54 @@ class Webserver
 
         while(true)
         {
-            ssl_socket socket(*io_service, *ssl_context);
-            acceptorV4->accept(socket.next_layer());
-            socket.handshake(boost::asio::ssl::stream_base::handshake_type::server);
-            bool isNewClient = wserver->addSession(socket.next_layer().remote_endpoint().address().to_string());
-            if(wserver->customRequests.size() > 0)
+            try
             {
-                if(isNewClient)
+                ssl_socket socket(*io_service, *ssl_context);
+                acceptorV4->accept(socket.next_layer());
+                socket.handshake(boost::asio::ssl::stream_base::handshake_type::server);
+                bool isNewClient = wserver->addSession(socket.next_layer().remote_endpoint().address().to_string());
+                if(wserver->customRequests.size() > 0)
                 {
-                    boost::uuids::random_generator_pure gen;
-                    boost::uuids::uuid gid = gen();
-                    std::string sessionCookie[2];
-                    sessionCookie[0] = "session";
-                    sessionCookie[1] = boost::uuids::to_string(gid);
-                    handleHTTPSRequest(socket, &(wserver->customRequests), consoleOutput, sessionCookie);
+                    if(isNewClient)
+                    {
+                        boost::uuids::random_generator_pure gen;
+                        boost::uuids::uuid gid = gen();
+                        std::string sessionCookie[2];
+                        sessionCookie[0] = "session";
+                        sessionCookie[1] = boost::uuids::to_string(gid);
+                        handleHTTPSRequest(socket, &(wserver->customRequests), consoleOutput, sessionCookie);
+                    }
+                    else
+                    {
+                        handleHTTPSRequest(socket, &(wserver->customRequests), consoleOutput);
+                    }
                 }
                 else
                 {
-                    handleHTTPSRequest(socket, &(wserver->customRequests), consoleOutput);
+                    if(isNewClient)
+                    {
+                        boost::uuids::random_generator_pure gen;
+                        boost::uuids::uuid gid = gen();
+                        std::string sessionCookie[2];
+                        sessionCookie[0] = "session";
+                        sessionCookie[1] = boost::uuids::to_string(gid);
+                        handleHTTPSRequest(socket, 0, consoleOutput, sessionCookie);
+                    }
+                    else
+                    {
+                        handleHTTPSRequest(socket, 0, consoleOutput);
+                    }
                 }
+                socket.next_layer().close();
+
             }
-            else
+            catch(std::exception e)
             {
-                if(isNewClient)
+                if(consoleOutput)
                 {
-                    boost::uuids::random_generator_pure gen;
-                    boost::uuids::uuid gid = gen();
-                    std::string sessionCookie[2];
-                    sessionCookie[0] = "session";
-                    sessionCookie[1] = boost::uuids::to_string(gid);
-                    handleHTTPSRequest(socket, 0, consoleOutput, sessionCookie);
-                }
-                else
-                {
-                    handleHTTPSRequest(socket, 0, consoleOutput);
+                    printf("Connection Error!\n");
                 }
             }
-            socket.next_layer().close();
         }
     }
 
@@ -883,42 +894,52 @@ class Webserver
         
         while(true)
         {
-            boost::asio::ip::tcp::socket socket(*io_service);    
-            acceptor->accept(socket);
-            bool isNewClient = wserver->addSession(socket.remote_endpoint().address().to_string());
-            if(wserver->customRequests.size() > 0)
+            try
             {
-                if(isNewClient)
+                boost::asio::ip::tcp::socket socket(*io_service);    
+                acceptor->accept(socket);
+                bool isNewClient = wserver->addSession(socket.remote_endpoint().address().to_string());
+                if(wserver->customRequests.size() > 0)
                 {
-                    boost::uuids::random_generator_pure gen;
-                    boost::uuids::uuid gid = gen();
-                    std::string sessionCookie[2];
-                    sessionCookie[0] = "session";
-                    sessionCookie[1] = boost::uuids::to_string(gid);
-                    handleHTTPSRequest(socket, &(wserver->customRequests), consoleOutput, sessionCookie);
+                    if(isNewClient)
+                    {
+                        boost::uuids::random_generator_pure gen;
+                        boost::uuids::uuid gid = gen();
+                        std::string sessionCookie[2];
+                        sessionCookie[0] = "session";
+                        sessionCookie[1] = boost::uuids::to_string(gid);
+                        handleHTTPSRequest(socket, &(wserver->customRequests), consoleOutput, sessionCookie);
+                    }
+                    else
+                    {
+                        handleHTTPSRequest(socket, &(wserver->customRequests), consoleOutput);
+                    }
                 }
                 else
                 {
-                    handleHTTPSRequest(socket, &(wserver->customRequests), consoleOutput);
+                    if(isNewClient)
+                    {
+                        boost::uuids::random_generator_pure gen;
+                        boost::uuids::uuid gid = gen();
+                        std::string sessionCookie[2];
+                        sessionCookie[0] = "session";
+                        sessionCookie[1] = boost::uuids::to_string(gid);
+                        handleHTTPSRequest(socket, 0, consoleOutput, sessionCookie);
+                    }
+                    else
+                    {
+                        handleHTTPSRequest(socket, 0, consoleOutput);
+                    }
                 }
+                socket.close();
             }
-            else
+            catch(std::exception e)
             {
-                if(isNewClient)
+                if(consoleOutput)
                 {
-                    boost::uuids::random_generator_pure gen;
-                    boost::uuids::uuid gid = gen();
-                    std::string sessionCookie[2];
-                    sessionCookie[0] = "session";
-                    sessionCookie[1] = boost::uuids::to_string(gid);
-                    handleHTTPSRequest(socket, 0, consoleOutput, sessionCookie);
-                }
-                else
-                {
-                    handleHTTPSRequest(socket, 0, consoleOutput);
+                    printf("Connection Error!\n");
                 }
             }
-            socket.close();
         }
     }
 
@@ -960,7 +981,6 @@ class Webserver
             for(int i = 0; i < threads; i++)
             {
                 pthread_join(thread[i], 0);
-                pthread_create(&thread[i], 0, ((void*(*)(void* v))(f)), args);
             }
         }
         else

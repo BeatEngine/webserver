@@ -99,7 +99,7 @@ int main(int args, char** argv)
     {
         secure = false;
     }
-    server.run(port, secure, consoleOutput);
+    server.run(port, secure, consoleOutput,8);
 
 
     return 0;
