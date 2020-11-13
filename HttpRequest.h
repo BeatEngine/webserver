@@ -3,12 +3,16 @@
 #endif
 
 #if __cplusplus >= 201103L
+    #define CPPv11 1
+#endif
+
+#if defined(CPPv11) && not defined(usleep)
     #include <chrono>
     #include <thread>
     #define usleep(X) std::this_thread::sleep_for(std::chrono::microseconds(X))
 #endif
 
-#ifndef usleep
+#if not defined(usleep) && not defined(CPPv11)
     #include <time.h>
     void usleep(long mics)
     {

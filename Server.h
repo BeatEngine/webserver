@@ -761,6 +761,7 @@ class Webserver
 
     std::vector<std::string> sessions;
 
+    public:
     bool addSession(std::string ip)
     {
         for(int i = 0; i < sessions.size(); i++)
@@ -774,7 +775,6 @@ class Webserver
         return true;
     }
 
-    public:
     Webserver()
     {
 
@@ -814,12 +814,121 @@ class Webserver
         }
     }
 
-    void run(int port, bool https = true, bool consoleOutput = true)
+    static void sThreadSafe(void* params)
     {
-        if(!boost::filesystem::exists(boost::filesystem::path("./tmp")))
+        void **parm = (void**)params;
+        int port = (int)(uintptr_t)(parm[0]);
+        bool https = (bool)(uintptr_t)(parm[1]);
+        bool consoleOutput = (bool)(uintptr_t)(parm[2]);
+        Webserver* wserver = (Webserver*)parm[3];
+        boost::asio::ip::tcp::endpoint* serverV4 = (boost::asio::ip::tcp::endpoint*)parm[4];
+        boost::asio::ip::tcp::endpoint* serverV6 = (boost::asio::ip::tcp::endpoint*)parm[5];
+        boost::asio::io_service* io_service = (boost::asio::io_service*)parm[6];
+        boost::asio::ip::tcp::acceptor* acceptorV4 = (boost::asio::ip::tcp::acceptor*)parm[7];
+        //boost::asio::ip::tcp::acceptor acceptorV6(io_service, serverV6);
+        boost::asio::ssl::context* ssl_context = (boost::asio::ssl::context*)parm[8];
+
+        while(true)
         {
-            boost::filesystem::create_directory(boost::filesystem::path("./tmp"));
+            ssl_socket socket(*io_service, *ssl_context);
+            acceptorV4->accept(socket.next_layer());
+            socket.handshake(boost::asio::ssl::stream_base::handshake_type::server);
+            bool isNewClient = wserver->addSession(socket.next_layer().remote_endpoint().address().to_string());
+            if(wserver->customRequests.size() > 0)
+            {
+                if(isNewClient)
+                {
+                    boost::uuids::random_generator_pure gen;
+                    boost::uuids::uuid gid = gen();
+                    std::string sessionCookie[2];
+                    sessionCookie[0] = "session";
+                    sessionCookie[1] = boost::uuids::to_string(gid);
+                    handleHTTPSRequest(socket, &(wserver->customRequests), consoleOutput, sessionCookie);
+                }
+                else
+                {
+                    handleHTTPSRequest(socket, &(wserver->customRequests), consoleOutput);
+                }
+            }
+            else
+            {
+                if(isNewClient)
+                {
+                    boost::uuids::random_generator_pure gen;
+                    boost::uuids::uuid gid = gen();
+                    std::string sessionCookie[2];
+                    sessionCookie[0] = "session";
+                    sessionCookie[1] = boost::uuids::to_string(gid);
+                    handleHTTPSRequest(socket, 0, consoleOutput, sessionCookie);
+                }
+                else
+                {
+                    handleHTTPSRequest(socket, 0, consoleOutput);
+                }
+            }
+            socket.next_layer().close();
         }
+    }
+
+    static void sThreadUnsafe(void* params)
+    {
+        void **parm = (void**)params;
+        int port = (int)(uintptr_t)(parm[0]);
+        bool https = (bool)(uintptr_t)(parm[1]);
+        bool consoleOutput = (bool)(uintptr_t)(parm[2]);
+        Webserver* wserver = (Webserver*)parm[3];
+        boost::asio::ip::tcp::endpoint* server = (boost::asio::ip::tcp::endpoint*)parm[4];
+        boost::asio::io_service* io_service = (boost::asio::io_service*)parm[5];
+        boost::asio::ip::tcp::acceptor* acceptor = (boost::asio::ip::tcp::acceptor*)parm[6];
+        
+        while(true)
+        {
+            boost::asio::ip::tcp::socket socket(*io_service);    
+            acceptor->accept(socket);
+            bool isNewClient = wserver->addSession(socket.remote_endpoint().address().to_string());
+            if(wserver->customRequests.size() > 0)
+            {
+                if(isNewClient)
+                {
+                    boost::uuids::random_generator_pure gen;
+                    boost::uuids::uuid gid = gen();
+                    std::string sessionCookie[2];
+                    sessionCookie[0] = "session";
+                    sessionCookie[1] = boost::uuids::to_string(gid);
+                    handleHTTPSRequest(socket, &(wserver->customRequests), consoleOutput, sessionCookie);
+                }
+                else
+                {
+                    handleHTTPSRequest(socket, &(wserver->customRequests), consoleOutput);
+                }
+            }
+            else
+            {
+                if(isNewClient)
+                {
+                    boost::uuids::random_generator_pure gen;
+                    boost::uuids::uuid gid = gen();
+                    std::string sessionCookie[2];
+                    sessionCookie[0] = "session";
+                    sessionCookie[1] = boost::uuids::to_string(gid);
+                    handleHTTPSRequest(socket, 0, consoleOutput, sessionCookie);
+                }
+                else
+                {
+                    handleHTTPSRequest(socket, 0, consoleOutput);
+                }
+            }
+            socket.close();
+        }
+    }
+
+    void sthread(void* params, int threads)
+    {
+        void **parm = (void**)params;
+        int port = (int)(uintptr_t)(parm[0]);
+        bool https = (bool)(uintptr_t)(parm[1]);
+        bool consoleOutput = (bool)(uintptr_t)(parm[2]);
+        Webserver* wserver = (Webserver*)parm[3];
         if(https)
         {
             boost::asio::ip::tcp::endpoint serverV4(boost::asio::ip::tcp::v4(), port);
@@ -832,113 +941,67 @@ class Webserver
             ssl_context.use_private_key_file("certs/privkey.pem", boost::asio::ssl::context_base::pem);
             ssl_context.use_tmp_dh_file("certs/dh2048.pem");
 
-            while(true)
+            pthread_t thread[threads];
+            void *args[9];
+            args[0] = parm[0];
+            args[1] = parm[1];
+            args[2] = parm[2];
+            args[3] = parm[3];
+            args[4] = (void*)&serverV4;
+            args[5] = (void*)&serverV6;
+            args[6] = (void*)&io_service;
+            args[7] = (void*)&acceptorV4;
+            args[8] = (void*)&ssl_context;
+            uintptr_t* f = (uintptr_t*)(sThreadSafe);
+            for(int i = 0; i < threads; i++)
             {
-                try
-                {
-                    ssl_socket socket(io_service, ssl_context);
-                    acceptorV4.accept(socket.next_layer());
-                    socket.handshake(boost::asio::ssl::stream_base::handshake_type::server);
-                    bool isNewClient = addSession(socket.next_layer().remote_endpoint().address().to_string());
-                    if(customRequests.size() > 0)
-                    {
-                        if(isNewClient)
-                        {
-                            boost::uuids::random_generator_pure gen;
-                            boost::uuids::uuid gid = gen();
-                            std::string sessionCookie[2];
-                            sessionCookie[0] = "session";
-                            sessionCookie[1] = boost::uuids::to_string(gid);
-                            handleHTTPSRequest(socket, &customRequests, consoleOutput, sessionCookie);
-                        }
-                        else
-                        {
-                            handleHTTPSRequest(socket, &customRequests, consoleOutput);
-                        }
-                    }
-                    else
-                    {
-                        if(isNewClient)
-                        {
-                            boost::uuids::random_generator_pure gen;
-                            boost::uuids::uuid gid = gen();
-                            std::string sessionCookie[2];
-                            sessionCookie[0] = "session";
-                            sessionCookie[1] = boost::uuids::to_string(gid);
-                            handleHTTPSRequest(socket, 0, consoleOutput, sessionCookie);
-                        }
-                        else
-                        {
-                            handleHTTPSRequest(socket, 0, consoleOutput);
-                        }
-                    }
-                    socket.next_layer().close();
-                }
-                catch(const std::exception& e)
-                {
-                    if(consoleOutput)
-                    {
-                        printf("Connection Error!\n");
-                    }
-                }
+                pthread_create(&thread[i], 0, ((void*(*)(void* v))(f)), args);
             }
-
+            for(int i = 0; i < threads; i++)
+            {
+                pthread_join(thread[i], 0);
+                pthread_create(&thread[i], 0, ((void*(*)(void* v))(f)), args);
+            }
         }
         else
         {
             boost::asio::ip::tcp::endpoint server(boost::asio::ip::tcp::v4(), port);
             boost::asio::io_service io_service;
             boost::asio::ip::tcp::acceptor acceptor(io_service, server);
-            while(true)
+
+            pthread_t thread[threads];
+            void *args[9];
+            args[0] = parm[0];
+            args[1] = parm[1];
+            args[2] = parm[2];
+            args[3] = parm[3];
+            args[4] = (void*)&server;
+            args[5] = (void*)&io_service;
+            args[6] = (void*)&acceptor;
+            uintptr_t* f = (uintptr_t*)(sThreadUnsafe);
+            for(int i = 0; i < threads; i++)
             {
-                try
-                {
-                    boost::asio::ip::tcp::socket socket(io_service);
-                    acceptor.accept(socket);
-                    bool isNewClient = addSession(socket.remote_endpoint().address().to_string());
-                    if(customRequests.size() > 0)
-                    {
-                        if(isNewClient)
-                        {
-                            boost::uuids::random_generator_pure gen;
-                            boost::uuids::uuid gid = gen();
-                            std::string sessionCookie[2];
-                            sessionCookie[0] = "session";
-                            sessionCookie[1] = boost::uuids::to_string(gid);
-                            handleHTTPSRequest(socket, &customRequests, consoleOutput, sessionCookie);
-                        }
-                        else
-                        {
-                            handleHTTPSRequest(socket, &customRequests, consoleOutput);
-                        }
-                    }
-                    else
-                    {
-                        if(isNewClient)
-                        {
-                            boost::uuids::random_generator_pure gen;
-                            boost::uuids::uuid gid = gen();
-                            std::string sessionCookie[2];
-                            sessionCookie[0] = "session";
-                            sessionCookie[1] = boost::uuids::to_string(gid);
-                            handleHTTPSRequest(socket, 0, consoleOutput, sessionCookie);
-                        }
-                        else
-                        {
-                            handleHTTPSRequest(socket, 0, consoleOutput);
-                        }
-                    }
-                    socket.close();
-                }
-                catch(const std::exception& e)
-                {
-                    if(consoleOutput)
-                    {
-                        printf("Connection Error!\n");
-                    }
-                }
+                pthread_create(&thread[i], 0, ((void*(*)(void* v))(f)), args);
+            }
+            for(int i = 0; i < threads; i++)
+            {
+                pthread_join(thread[i], 0);
             }
         }
+    }
+
+    void run(int port, bool https = true, bool consoleOutput = true, int threads = 8)
+    {
+        if(!boost::filesystem::exists(boost::filesystem::path("./tmp")))
+        {
+            boost::filesystem::create_directory(boost::filesystem::path("./tmp"));
+        }
+        void *args[4];
+        args[0] = (void*)(*((uintptr_t*)&port));
+        args[1] = (void*)(*((uintptr_t*)&https));
+        args[2] = (void*)(*((uintptr_t*)&consoleOutput));
+        args[3] = this;
+        sthread(args, threads);
     }
 };
 
