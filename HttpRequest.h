@@ -1,6 +1,28 @@
 #ifndef ssl_socket
     #define ssl_socket boost::asio::ssl::stream<boost::asio::ip::tcp::socket>
 #endif
+
+#if __cplusplus >= 201103L
+    #include <chrono>
+    #include <thread>
+    #define usleep(X) std::this_thread::sleep_for(std::chrono::microseconds(X))
+#endif
+
+#ifndef usleep
+    #include <time.h>
+    void usleep(long mics)
+    {
+        clock_t now = clock();
+        double tm = (double)mics;
+        double f = CLOCKS_PER_SEC/1000000.0;
+        while ((double)(clock()-now)/f < tm)
+        {
+            
+        }
+    }
+#endif
+
+
 #include "StringUtils.h"
 
 class HttpRequest
@@ -320,7 +342,6 @@ public:
                         tparas += plainRequest[i];
                         i++;
                     }
-                    printf("Body: %s\n", tparas.c_str());
                     std::vector<std::string> params = StringUtils::split(tparas, "&");
                     for(int i = 0; i < params.size(); i++)
                     {
@@ -334,11 +355,11 @@ public:
                     break;
                 }
             }
-            printf("params: %d\n", parameters.size());
+            /*printf("params: %ld\n", parameters.size());
             for(int i = 0; i < parameters.size(); i++)
             {
                 printf("[%d]: %s = %s\n", i,parameters.keyAt(i).c_str(), parameters[i].c_str());
-            }
+            }*/
         }
 
         if(attributes.contains("Cookie"))
