@@ -32,6 +32,26 @@
 		</for>
 	</ul>
 </div>
+<div id="container3" class="container autosize" style="margin-left:35%; position: absolute; top: 20%;">
+<table style="font-size:20pt; text-align: center;">
+	<tr>
+	<for condition="u=0; u less testelements_sz; u++">
+		<td>
+		{{testelements[u]}}
+		</td>
+	</for>
+	</tr>
+	<for condition="i=0; i less testelements_sz; i++">
+		<tr>
+		<for condition="u=0; u less= i; u++">
+			<td>
+			{{u}}
+			</td>
+		</for>
+		</tr>
+	</for>
+</table>
+</div>
 
 </body>
 
