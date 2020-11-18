@@ -17,6 +17,22 @@
 	</ul>
 </div>
 
+<div id="container2" class="container autosize">
+	<ul>
+		<for condition="i=1; i less testelements_sz; i++">
+			<li if="i greater 2 && testelements[i] == display">{{testelements[i]}}</li>
+		</for>
+	</ul>
+</div>
+
+<div id="container3" class="container autosize">
+	<ul>
+		<for condition="i=testelements_sz; i greater= 0; i--">
+			<li if="i greater 2 && testelements[i] == display">{{testelements[i]}}</li>
+		</for>
+	</ul>
+</div>
+
 </body>
 
 

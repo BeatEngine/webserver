@@ -93,6 +93,8 @@ int main(int args, char** argv)
     StringMap valueMappingT1;
     valueMappingT1.put("variable","value");
     valueMappingT1.put("list","[\"Entry 1\", \"Entry 2\", \"Entry 3\", \"Entry 4\", \"Entry 5\"]");
+    valueMappingT1.put("testelements_sz","6");
+    valueMappingT1.put("testelements", "[\"lol\", \"display\", \"display\", \"nodisplay\", \"display\", \"display\"]");
     server.bindTemplate("/template", "GET", "./TEMPLATES/template.html", valueMappingT1);
     server.bindEvent("/add", "POST", sum);
     if(port == 80)

@@ -15,13 +15,13 @@ namespace htmlElement
         std::string name;
         std::string innerText;
         std::vector<Tag> children;
-        Tag* parent;
 
         void loadChildren(std::string& sourceCode, int start, int end)
         {
             std::vector<int> inners;
             std::string current = "";
             std::string tstr;
+            
             int tgc = 0;
             for(int i = start; i < end; i++)
             {
@@ -70,7 +70,7 @@ namespace htmlElement
                         if(i < end && (sourceCode[i] == ' ' || sourceCode[i] == '>'))
                         {
                             tstr = sourceCode.substr(a+1,i-a-1);
-                            if(tstr == current)
+                            if(tstr == current && tgc != 0)
                             {
                                 tgc++;
                             }
@@ -119,6 +119,28 @@ namespace htmlElement
                     }
                     attributes.put(pair[0], pair[1]);
                 }
+                else if(pair.size() > 0)
+                {
+                    std::string tpa = pair[0];
+                    std::string tpb = "";
+                    for(int t = 1; t < pair.size(); t++)
+                    {
+                        tpb += pair[t];
+                        if(t+1 < pair.size())
+                        {
+                            tpb += "=";
+                        }
+                    }
+                    if(tpb[0] == '"')
+                    {
+                        tpb = tpb.substr(1);
+                    }
+                    if(tpb[tpb.size()-1] == '"')
+                    {
+                        tpb = tpb.substr(0, tpb.size()-1);
+                    }
+                    attributes.put(tpa, tpb);
+                }
             }
         }
 
@@ -137,18 +159,15 @@ namespace htmlElement
         public:
         Tag()
         {
-            parent = 0;
             children = std::vector<Tag>();
         }
         Tag(std::string& sourceCode, Tag* parent = 0)
         {
-            this->parent = parent;
             load(sourceCode);
         }
 
         Tag(std::string& sourceCode, int start, int end, Tag* parent = 0)
         {
-            this->parent = parent;
             load(sourceCode, start, end);
         }
 
@@ -159,11 +178,318 @@ namespace htmlElement
             std::string pattA = "{{";
             std::string pattB = "}}";
 
+            for(int i = 0; i < children.size(); i++)
+            {
+                if(children[i].name == "for")
+                {
+                    if(children[i].attributes.contains("condition"))
+                    {
+                        std::string condition = children[i].attributes.get("condition");
+                        StringUtils::replace(condition, " ", "");
+                        std::vector<std::string> parts = StringUtils::split(condition, ";");
+                        if(parts.size() == 3)
+                        {
+                            std::vector<std::string> subs = StringUtils::split(parts[0], "=");
+                            if(subs.size() == 2)
+                            {
+                                std::string var = subs[0];
+                                std::string start = subs[1];
+                                std::string eq = "==";
+                                std::string se = "less=";
+                                std::string ge = "greater=";
+                                std::string sm = "less";
+                                std::string gr = "greater";
+                                std::string ne = "!=";
+                                std::string loopConditionValue = "";
+                                bool inc = true;
+                                std::string conditionOperator = "";
+
+                                if(StringUtils::contains(parts[1], eq))
+                                {
+                                    std::vector<std::string> prts = StringUtils::split(parts[1], eq);
+                                    if(prts.size() == 2)
+                                    {
+                                        loopConditionValue = prts[1];
+                                    }
+                                    else
+                                    {
+                                        children.erase(children.begin()+i);
+                                        i--;
+                                    }
+                                    conditionOperator = eq;
+                                }
+                                else if(StringUtils::contains(parts[1], se))
+                                {
+                                    std::vector<std::string> prts = StringUtils::split(parts[1], se);
+                                    if(prts.size() == 2)
+                                    {
+                                        loopConditionValue = prts[1];
+                                    }
+                                    else
+                                    {
+                                        children.erase(children.begin()+i);
+                                        i--;
+                                    }
+                                    conditionOperator = se;
+                                }
+                                else if(StringUtils::contains(parts[1], sm))
+                                {
+                                    std::vector<std::string> prts = StringUtils::split(parts[1], sm);
+                                    if(prts.size() == 2)
+                                    {
+                                        loopConditionValue = prts[1];
+                                    }
+                                    else
+                                    {
+                                        children.erase(children.begin()+i);
+                                        i--;
+                                    }
+                                    conditionOperator = sm;
+                                }
+                                else if(StringUtils::contains(parts[1], ge))
+                                {
+                                    std::vector<std::string> prts = StringUtils::split(parts[1], ge);
+                                    if(prts.size() == 2)
+                                    {
+                                        loopConditionValue = prts[1];
+                                    }
+                                    else
+                                    {
+                                        children.erase(children.begin()+i);
+                                        i--;
+                                    }
+                                    conditionOperator = ge;
+                                }
+                                else if(StringUtils::contains(parts[1], gr))
+                                {
+                                    std::vector<std::string> prts = StringUtils::split(parts[1], gr);
+                                    if(prts.size() == 2)
+                                    {
+                                        loopConditionValue = prts[1];
+                                    }
+                                    else
+                                    {
+                                        children.erase(children.begin()+i);
+                                        i--;
+                                    }
+                                    conditionOperator = gr;
+                                }
+                                else if(StringUtils::contains(parts[1], ne))
+                                {
+                                    std::vector<std::string> prts = StringUtils::split(parts[1], ne);
+                                    if(prts.size() == 2)
+                                    {
+                                        loopConditionValue = prts[1];
+                                    }
+                                    else
+                                    {
+                                        children.erase(children.begin()+i);
+                                        i--;
+                                    }
+                                    conditionOperator = ne;
+                                }
+                                else
+                                {
+                                    children.erase(children.begin()+i);
+                                    i--;
+                                }
+                                if(loopConditionValue.size()>0)
+                                {
+                                    if(StringUtils::contains(parts[2], var))
+                                    {
+                                        std::vector<std::string> mode = StringUtils::split(parts[2], var);
+                                        if(mode[0] == "++")
+                                        {
+                                            inc = true;
+                                        }
+                                        else if(mode[0] == "--")
+                                        {
+                                            inc = false;
+                                        }
+                                        else
+                                        {
+                                            children.erase(children.begin()+i);
+                                            i--;
+                                            continue;
+                                        }
+                                        if(conditionOperator.length()>0)
+                                        {
+
+                                            int it;
+                                            int x;
+
+                                            if(StringUtils::isDecimal(start))
+                                            {
+                                                it = atoi(start.c_str());
+                                            }
+                                            else if(variables.contains(start))
+                                            {
+                                                it = atoi(variables.get(start).c_str());
+                                            }
+                                            else
+                                            {
+                                                children.erase(children.begin()+i);
+                                                i--;
+                                                continue;
+                                            }
+
+                                            if(StringUtils::isDecimal(loopConditionValue))
+                                            {
+                                                x = atoi(loopConditionValue.c_str());
+                                            }
+                                            else if(variables.contains(loopConditionValue))
+                                            {
+                                                x = atoi(variables.get(loopConditionValue).c_str());
+                                            }
+                                            else
+                                            {
+                                                children.erase(children.begin()+i);
+                                                i--;
+                                                continue;
+                                            }
+                                            
+                                            Tag generated;
+                                            std::string IFstr = "if";
+
+                                            while(true)
+                                            {
+                                                if(conditionOperator == eq)
+                                                {
+                                                    if(x != it)
+                                                    {
+                                                        break;
+                                                    }
+                                                }
+                                                else if(conditionOperator == sm)
+                                                {
+                                                    if(it >= x)
+                                                    {
+                                                        break;
+                                                    }
+                                                }
+                                                else if(conditionOperator == se)
+                                                {
+                                                    if(it > x)
+                                                    {
+                                                        break;
+                                                    }
+                                                }
+                                                else if(conditionOperator == gr)
+                                                {
+                                                    if(it <= x)
+                                                    {
+                                                        break;
+                                                    }
+                                                }
+                                                else if(conditionOperator == ge)
+                                                {
+                                                    if(it < x)
+                                                    {
+                                                        break;
+                                                    }
+                                                }
+                                                else if(conditionOperator == ne)
+                                                {
+                                                    if(it != x)
+                                                    {
+                                                        break;
+                                                    }
+                                                }
+                                                else
+                                                {
+                                                    break;
+                                                }
+                                                    //Action in loop
+
+                                                    for(int cc = 0; cc < children[i].children.size(); cc++)
+                                                    {
+                                                        Tag child = children[i].children[cc];
+                                                        if(child.attributes.contains(IFstr))
+                                                        {
+                                                            std::string ifCondition = child.attributes.get(IFstr);
+
+                                                            bool conditionResult = true;
+                                                            if(conditionResult)
+                                                            {
+                                                                StringMap varis = variables;
+                                                                varis.put(var, std::to_string(it));
+                                                                child.loadTemplate(varis);
+                                                                child.attributes.remove("if");
+                                                                generated.children.push_back(child);
+                                                            }
+                                                        }
+                                                        else
+                                                        {
+                                                            StringMap varis = variables;
+                                                            varis.put(var, std::to_string(it));
+                                                            child.loadTemplate(varis);
+                                                            generated.children.push_back(child);
+                                                        }
+                                                    }
+
+
+                                                if(inc)
+                                                {
+                                                    it++;
+                                                }
+                                                else
+                                                {
+                                                    it--;
+                                                }
+                                            }
+                                            children.erase(children.begin()+i);
+                                            for(int gc = generated.children.size()-1; gc >= 0; gc--)
+                                            {
+                                                children.insert(children.begin()+i, generated.children[gc]);
+                                            }
+                                        }
+                                    }
+                                    else
+                                    {
+                                        children.erase(children.begin()+i);
+                                        i--;
+                                    }
+                                }
+                            }
+                            else
+                            {
+                                children.erase(children.begin()+i);
+                                i--;
+                            }
+
+                        }
+                        else
+                        {
+                            children.erase(children.begin()+i);
+                            i--;
+                        }
+                    }
+                    else
+                    {
+                        children.erase(children.begin()+i);
+                        i--;
+                    }
+                }
+            }
+
             if(StringUtils::contains(innerText, pattA, true, &start) && StringUtils::contains(innerText, pattB, true, &end))
             {
                 if(start < end)
                 {
                     std::string varName = innerText.substr(start+2, end-start-2);
+                    std::string brackA = "[";
+                    std::string brackB = "]";
+                    std::string accessVar = "";
+                    if(StringUtils::contains(varName, brackA) && StringUtils::contains(varName, brackB))
+                    {
+                        int ba = varName.find(brackA);
+                        int bb = varName.find(brackB);
+                        if(bb > ba)
+                        {
+                            accessVar = varName.substr(ba+1, bb-ba-1);
+                            varName = varName.substr(0, ba);
+                        }
+                    }
                     if(variables.contains(varName))
                     {
                         std::string var = variables.get(varName);
@@ -183,14 +509,42 @@ namespace htmlElement
                                 }
                             }
                             innerText = "";
-                            for(int i = 0; i < items.size(); i++)
+                            if(accessVar.size() == 0)
                             {
-                                std::string src = "<"+name+">"+items[i]+"</"+name+">";
-                                Tag item(src, this);
-                                children.push_back(item);
+                                for(int i = 0; i < items.size(); i++)
+                                {
+                                    std::string src = "<"+name+">"+items[i]+"</"+name+">";
+                                    Tag item(src, this);
+                                    children.push_back(item);
+                                }
+                                name = "span";
                             }
-                            name = "div";
-                            
+                            else
+                            {
+                                int idx;
+                                if(StringUtils::isDecimal(accessVar))
+                                {
+                                    idx = atoi(accessVar.c_str());
+                                    innerText = items[idx];
+                                }
+                                else if(variables.contains(accessVar))
+                                {
+                                    std::string tv = variables.get(accessVar);
+                                    if(StringUtils::isDecimal(tv))
+                                    {
+                                        idx = atoi(tv.c_str());
+                                        if(idx < items.size() && idx >= 0)
+                                        {
+                                            innerText = items[idx];
+                                        }
+                                        else
+                                        {
+                                            innerText = "{null}";
+                                        }
+                                    }
+                                }
+                                
+                            }
                         }
                         else
                         {
@@ -327,7 +681,7 @@ namespace htmlElement
                                 else
                                 {
                                     innerStart = i + 1;
-                                    while(innerStart < end && sourceCode[innerStart] != '>')
+                                    while(innerStart < end && sourceCode[innerStart-1] != '>')
                                     {
                                         innerStart++;
                                     }

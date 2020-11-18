@@ -10,6 +10,26 @@ class StringMap
 
     public:
 
+    StringMap()
+    {
+        
+    }
+
+    StringMap(const StringMap& other)
+    {
+        keys = other.keys;
+        values = other.values;
+    }
+
+    StringMap& operator=(const StringMap& other)
+    {
+        keys = other.keys;
+        values = other.values;
+        return *this;
+    }
+
+
+
     size_t size()
     {
         return keys.size();
@@ -45,7 +65,7 @@ class StringMap
             if(keys[i] == key)
             {
                 keys.erase(keys.begin()+i);
-                values.erase(keys.begin()+i);
+                values.erase(values.begin()+i);
                 return true;
             }
         }
@@ -60,7 +80,7 @@ class StringMap
             if(keys[i] == key)
             {
                 keys.erase(keys.begin()+i);
-                values.erase(keys.begin()+i);
+                values.erase(values.begin()+i);
                 return true;
             }
         }
@@ -134,6 +154,18 @@ public:
             }
         }
         return false;
+    }
+
+    static bool isDecimal(std::string& str)
+    {
+        for(int i = 0; i < str.size(); i++)
+        {
+            if(str[i] < 48 || str[i] > 57)
+            {
+                return false;
+            }
+        }
+        return true;
     }
 
     static std::string substring(std::string& str, long a, long b = 999999999999999)
