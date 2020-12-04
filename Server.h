@@ -1,13 +1,54 @@
 #ifndef ssl_socket
     #define ssl_socket boost::asio::ssl::stream<boost::asio::ip::tcp::socket>
 #endif
+
+
+
+
+
+
+#ifndef access
+#define F_OK 1
+#define WINVCUSED 1
+int access(const char* path, int stat = 1)
+{
+	if (INVALID_FILE_ATTRIBUTES == GetFileAttributes(path))
+	{
+		return -1;
+	}
+	return 0;
+}
+#include <thread>
+#define pthread_t std::thread
+void pthread_create(pthread_t* thread, int opt, void*(*function)(void* v), void* args)
+{
+	*thread = std::thread((void(*)(void* v))(*function), args);
+}
+
+void pthread_join(pthread_t& thread, void* resultReturn)
+{
+	thread.join();
+}
+
+#include <time.h>
+void usleep(long mics)
+{
+	clock_t now = clock();
+	double tm = (double)mics;
+	double f = CLOCKS_PER_SEC / 1000000.0;
+	while ((double)(clock() - now) / f < tm)
+	{
+
+	}
+}
+
+#endif
+
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/uuid_io.hpp>
 #include <boost/uuid/uuid_generators.hpp>
 #include <boost/filesystem.hpp>
 #include "templateEngine.h"
-
-
 
 std::string generateResponsehead(long sizeBytes, HttpRequest& request, std::string customAttribute = "")
 {
@@ -106,15 +147,17 @@ std::string generateResponsehead(long sizeBytes, HttpRequest& request, std::stri
     return response;
 }
 
+
 std::size_t socketAvailable(ssl_socket& socket)
 {
-    return socket.next_layer().available();
+	return socket.next_layer().available();
 }
 
 std::size_t socketAvailable(boost::asio::ip::tcp::socket& socket)
 {
-    return socket.available();
+	return socket.available();
 }
+
 
 class RequestHandler
 {
@@ -950,6 +993,7 @@ class Webserver
         bool https = (bool)(uintptr_t)(parm[1]);
         bool consoleOutput = (bool)(uintptr_t)(parm[2]);
         Webserver* wserver = (Webserver*)parm[3];
+		pthread_t thread[64];
         if(https)
         {
             boost::asio::ip::tcp::endpoint serverV4(boost::asio::ip::tcp::v4(), port);
@@ -961,8 +1005,7 @@ class Webserver
             ssl_context.use_certificate_file("certs/newcert.pem", boost::asio::ssl::context_base::pem);
             ssl_context.use_private_key_file("certs/privkey.pem", boost::asio::ssl::context_base::pem);
             ssl_context.use_tmp_dh_file("certs/dh2048.pem");
-
-            pthread_t thread[threads];
+            
             void *args[9];
             args[0] = parm[0];
             args[1] = parm[1];
@@ -989,7 +1032,6 @@ class Webserver
             boost::asio::io_service io_service;
             boost::asio::ip::tcp::acceptor acceptor(io_service, server);
 
-            pthread_t thread[threads];
             void *args[9];
             args[0] = parm[0];
             args[1] = parm[1];

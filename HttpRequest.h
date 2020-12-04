@@ -2,17 +2,7 @@
     #define ssl_socket boost::asio::ssl::stream<boost::asio::ip::tcp::socket>
 #endif
 
-#if __cplusplus >= 201103L
-    #define CPPv11 1
-#endif
-
-#if defined(CPPv11) && not defined(usleep)
-    #include <chrono>
-    #include <thread>
-    #define usleep(X) std::this_thread::sleep_for(std::chrono::microseconds(X))
-#endif
-
-#if not defined(usleep) && not defined(CPPv11)
+#if not defined(usleep)
     #include <time.h>
     void usleep(long mics)
     {
