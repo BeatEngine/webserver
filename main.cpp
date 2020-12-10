@@ -4,6 +4,7 @@
 #include "HttpRequest.h"
 #include "Server.h"
 
+
 std::string customRequestEvent(HttpRequest& request, unsigned char* body, FILE* bigBody, size_t bodySize)
 {
     return "Custom Body! Your session: " + request.cookies.get("session") + "\n";

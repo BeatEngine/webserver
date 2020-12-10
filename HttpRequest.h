@@ -2,7 +2,10 @@
     #define ssl_socket boost::asio::ssl::stream<boost::asio::ip::tcp::socket>
 #endif
 
-#if not defined(usleep)
+#ifdef __linux__ 
+
+
+#else
     #include <time.h>
     void usleep(long mics)
     {
@@ -15,7 +18,6 @@
         }
     }
 #endif
-
 
 #include "StringUtils.h"
 

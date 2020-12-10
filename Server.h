@@ -4,10 +4,10 @@
 
 
 
+#ifdef __linux__ 
 
 
-
-#ifndef access
+#else
 #define F_OK 1
 #define WINVCUSED 1
 int access(const char* path, int stat = 1)
