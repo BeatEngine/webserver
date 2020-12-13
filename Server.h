@@ -29,7 +29,9 @@ void pthread_join(pthread_t& thread, void* resultReturn)
 {
 	thread.join();
 }
+#endif
 
+#ifndef USLEEPDEFINED
 #include <time.h>
 void usleep(long mics)
 {
@@ -41,8 +43,7 @@ void usleep(long mics)
 
 	}
 }
-
-#endif
+#endif // !usleep
 
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/uuid_io.hpp>

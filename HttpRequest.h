@@ -17,6 +17,7 @@
             
         }
     }
+#define USLEEPDEFINED 1
 #endif
 
 #include "StringUtils.h"

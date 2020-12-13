@@ -1,6 +1,11 @@
 #include <stdio.h>
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
+/*
+##define BOOST_ALL_NO_LIB
+##define BOOST_THREAD_USE_LIB
+##define BOOST_FILESYSTEM_USE_LIB
+##define BOOST_ASIO_USE_LIB*/
 #include "HttpRequest.h"
 #include "Server.h"
 
