@@ -3,7 +3,7 @@
 #endif
 
 #ifdef __linux__ 
-
+#define USLEEPDEFINED 1
 
 #else
     #include <time.h>
