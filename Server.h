@@ -5,7 +5,7 @@
 
 
 #ifdef __linux__ 
-
+#define USLEEPDEFINED 1
 
 #else
 #define F_OK 1
