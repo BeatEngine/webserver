@@ -17,9 +17,11 @@ You need the certificate files in ./certs/ -> newcert.pem, privkey.pem, dh2048.p
 # Build
 ## Linux
 unzip Includes_BoostLinux.zip  and unzip Libraries_BoostLinux.zip
+
 Use build-compile_static.sh or alternate build-compile.sh
 ### Raspberry PI
 unzip Includes_BoostLinux.zip  and unzip Libraries_BoostLinux.zip
+
 Use build-compile_raspberrypi.sh
 
 ## Windows
