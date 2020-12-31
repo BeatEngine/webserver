@@ -1005,7 +1005,7 @@ class Webserver
             boost::asio::ssl::context ssl_context(boost::asio::ssl::context::tlsv13_server);
             ssl_context.use_certificate_file("certs/newcert.pem", boost::asio::ssl::context_base::pem);
             ssl_context.use_private_key_file("certs/privkey.pem", boost::asio::ssl::context_base::pem);
-            ssl_context.use_tmp_dh_file("certs/dh2048.pem");
+            //ssl_context.use_tmp_dh_file("certs/dh2048.pem");
             
             void *args[9];
             args[0] = parm[0];
