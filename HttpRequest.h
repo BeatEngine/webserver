@@ -332,7 +332,7 @@ public:
                     std::string tparas = "";
                     while(i < plainRequest.length())
                     {
-                        if(plainRequest[i] != '&' && (plainRequest[i] == 0 || plainRequest[i] == ' ' || plainRequest[i] == '\t' || (plainRequest[i] != '%' && (plainRequest[i] < 48 || plainRequest[i] > 122 || (plainRequest[i] > 91 && plainRequest[i] < 97) ))))
+                        if(plainRequest[i] != '&' && (plainRequest[i] == 0 || plainRequest[i] == ' ' || plainRequest[i] == '\t' || (plainRequest[i] != '%' && (plainRequest[i] < 33 || plainRequest[i] > 126 || (plainRequest[i] > 91 && plainRequest[i] < 97) ))))
                         {
                             break;
                         }
