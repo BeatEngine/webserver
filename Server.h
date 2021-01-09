@@ -51,6 +51,7 @@ void usleep(long mics)
 #include <boost/filesystem.hpp>
 #include "templateEngine.h"
 
+
 std::string generateResponsehead(long sizeBytes, HttpRequest& request, std::string customAttribute = "")
 {
     std::string type = "text/html; charset=utf-8";
@@ -168,6 +169,243 @@ class RequestHandler
     std::vector<std::string> filePath;
     std::vector<StringMap> templateVariables;
     std::vector<bool> istemplate;
+    std::vector<bool> isupload;
+
+    std::string processMultiPartUpload(HttpRequest& request, unsigned char* buffer, FILE* fbuffer, size_t bufferSize, std::string uploadDirectory, int index = 0)
+    {
+        std::string type = request.attributes.get("content-type");
+        if (uploadDirectory[uploadDirectory.length() - 1] != '/' && uploadDirectory[uploadDirectory.length() - 1] != '\\')
+        {
+#ifdef __linux__ 
+            uploadDirectory += "/";
+#else
+            uploadDirectory += "\\";
+#endif
+        }
+        if (!type.empty())
+        {
+            if (type.find("multipart/form-data; boundary=") >= 0)
+            {
+                std::vector<std::string> parts = StringUtils::split(type, "=");
+                if (parts.size() == 2)
+                {
+                    std::string boundary = parts[1];
+                    if (buffer)
+                    {
+                        int f = 0;
+                        int start = 0;
+                        std::string info = "";
+
+                        for (int i = 4; i < bufferSize; i++)
+                        {
+                            if (buffer[i - 3] == '\r' && buffer[i - 2] == '\n' && buffer[i - 1] == '\r' && buffer[i] == '\n')
+                            {
+                                start = i;
+                                break;
+                            }
+                        }
+
+                        for (int i = start; i < bufferSize; i++)
+                        {
+                            for (f = 0; f < boundary.size() && i+f < bufferSize; f++)
+                            {
+                                if (buffer[i + f] != boundary[f])
+                                {
+                                    break;
+                                }
+                            }
+                            if (f == boundary.size())
+                            {
+                                if (info.empty())
+                                {
+                                    int d = i + f;
+                                    while (d < bufferSize)
+                                    {
+                                        if (buffer[d] == '\r' && buffer[d + 1] == '\n' && buffer[d + 2] == '\r' && buffer[d+3] == '\n')
+                                        {
+                                            int pos = info.find("filename");
+                                            if (pos >= 0)
+                                            {
+                                                info = info.substr(pos);
+                                                for (int c = 0; c < info.length(); c++)
+                                                {
+                                                    if (info[c] == '\r')
+                                                    {
+                                                        info = info.substr(0, c);
+                                                        break;
+                                                    }
+                                                }
+                                            }
+                                            d += 4;
+                                            break;
+                                        }
+                                        info += buffer[d];
+                                        d++;
+                                    }
+                                    start = d;
+                                }
+                                else
+                                {
+                                    std::string filename = "";
+                                    std::vector<std::string> prts = StringUtils::split(info, "=", false);
+                                    if (prts.size() == 2)
+                                    {
+                                        filename = prts[1];
+                                        if (filename[0] == '"' && filename[filename.length()-1] == '"')
+                                        {
+                                            filename = filename.substr(1, filename.length() - 2);
+                                        }
+                                        FILE* file = fopen((uploadDirectory + filename).c_str(), "wb");
+                                        fwrite(buffer + start, sizeof(char), i - start -4, file);
+                                        fclose(file);
+                                        /*for (int index = start; index < i + f; index++)
+                                        {
+
+                                        }*/
+
+                                    }
+                                    info = "";
+                                    start = i + f;
+                                }
+                                
+                            }
+                        }
+                    }
+                    else
+                    {
+                        long pageSize = 1024;
+                        unsigned char buff[1025];
+                        long page = 0;
+
+                        fseek(fbuffer, 0, SEEK_END);
+                        bufferSize = ftell(fbuffer);
+                        fseek(fbuffer, 0, SEEK_SET);
+
+                        fread(buff, sizeof(char), 1024, fbuffer);
+
+                        long f = 0;
+                        long start = 0;
+                        std::string info = "";
+
+                        for (long i = 4; i < pageSize; i++)
+                        {
+                            if (buff[i - 3] == '\r' && buff[i - 2] == '\n' && buff[i - 1] == '\r' && buff[i] == '\n')
+                            {
+                                start = i;
+                                break;
+                            }
+                        }
+
+                        for (long i = start; i < bufferSize; i++)
+                        {
+                            for (f = 0; f < boundary.size() && i+f < bufferSize; f++)
+                            {
+                                if (i+f >= pageSize + page * pageSize)
+                                {
+                                    int read = fread(buff, sizeof(char), pageSize, fbuffer);
+                                    for (int err = 0; err < pageSize - read; err++)
+                                    {
+                                        fread(buff + read + err, 1, 1, fbuffer);
+                                    }
+                                    page++;
+                                }
+                                if (buff[i + f - page*pageSize] != boundary[f])
+                                {
+                                    break;
+                                }
+                            }
+                            if (f == boundary.size())
+                            {
+                                if (info.empty())
+                                {
+                                    long d = i + f;
+                                    while (d < bufferSize)
+                                    {
+                                        if (d >= pageSize + page * pageSize)
+                                        {
+                                            int read = fread(buff, sizeof(char), pageSize, fbuffer);
+                                            for (int err = 0; err < pageSize - read; err++)
+                                            {
+                                                fread(buff + read + err, 1, 1, fbuffer);
+                                            }
+                                            page++;
+                                        }
+                                        if (buff[d - page * pageSize] == '\r' && buff[d - page * pageSize + 1] == '\n' && buff[d - page * pageSize + 2] == '\r' && buff[d - page * pageSize + 3] == '\n')
+                                        {
+                                            long pos = info.find("filename");
+                                            if (pos >= 0)
+                                            {
+                                                info = info.substr(pos);
+                                                for (long c = 0; c < info.length(); c++)
+                                                {
+                                                    if (info[c] == '\r')
+                                                    {
+                                                        info = info.substr(0, c);
+                                                        break;
+                                                    }
+                                                }
+                                            }
+                                            d += 4;
+                                            break;
+                                        }
+                                        info += buff[d - page * pageSize];
+                                        d++;
+                                    }
+                                    start = d;
+                                }
+                                else
+                                {
+                                    std::string filename = "";
+                                    std::vector<std::string> prts = StringUtils::split(info, "=", false);
+                                    if (prts.size() == 2)
+                                    {
+                                        filename = prts[1];
+                                        if (filename[0] == '"' && filename[filename.length() - 1] == '"')
+                                        {
+                                            filename = filename.substr(1, filename.length() - 2);
+                                        }
+                                        FILE* file = fopen((uploadDirectory + filename).c_str(), "wb");
+
+                                        
+                                        
+                                        for (long index = start - page*pageSize; index < i + f; index=index)
+                                        {
+                                            if (index >= pageSize + page * pageSize)
+                                            {
+                                                int read = fread(buff, sizeof(char), pageSize, fbuffer);
+                                                for (int err = 0; err < pageSize - read; err++)
+                                                {
+                                                    fread(buff + read + err, 1, 1, fbuffer);
+                                                }
+                                                page++;
+                                            }
+                                            if (i - start - 4 < pageSize)
+                                            {
+                                                fwrite(buff + start - page * pageSize, sizeof(char), pageSize, file);
+                                                break;
+                                            }
+                                            else
+                                            {
+                                                fwrite(buff + start - page * pageSize, sizeof(char), pageSize, file);
+                                                index += pageSize;
+                                            }
+                                        }
+                                        fclose(file);
+
+                                    }
+                                    info = "";
+                                    start = i + f;
+                                }
+
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        request.attributes.set("content-type", "text/plain");
+        return "400 Bad Request wrong content-type.";
+    }
 
     /* Syntax like thymeleaf */
     std::string processTemplate(HttpRequest& request, unsigned char* buffer, FILE* fbuffer, size_t bufferSize, std::string templateFilePath, int index = 0)
@@ -223,6 +461,7 @@ class RequestHandler
         events.push_back((void*)event);
         filePath.push_back("");
         istemplate.push_back(false);
+        isupload.push_back(false);
         templateVariables.push_back(StringMap());
     }
 
@@ -233,6 +472,7 @@ class RequestHandler
         events.push_back(0);
         filePath.push_back(pathToFile);
         istemplate.push_back(false);
+        isupload.push_back(false);
         templateVariables.push_back(StringMap());
     }
 
@@ -243,7 +483,19 @@ class RequestHandler
         events.push_back(0);
         filePath.push_back(pathToFile);
         istemplate.push_back(true);
+        isupload.push_back(false);
         templateVariables.push_back(values);
+    }
+
+    void setPathMultiPartFileUpload(std::string& path, std::string& method, std::string& directory)
+    {
+        paths.push_back(path);
+        methods.push_back(method);
+        events.push_back(0);
+        filePath.push_back(directory);
+        istemplate.push_back(false);
+        isupload.push_back(true);
+        templateVariables.push_back(StringMap());
     }
 
     bool containsPath(std::string& path, std::string& method, std::string* returnMappedFilePath)
@@ -285,15 +537,31 @@ class RequestHandler
         return false;
     }
 
+    bool isUpload(std::string& path, std::string& method)
+    {
+        for (int i = 0; i < paths.size(); i++)
+        {
+            if (paths[i] == path && methods[i] == method)
+            {
+                return isupload[i];
+            }
+        }
+        return false;
+    }
+
     std::string getEventResult(HttpRequest& request, unsigned char* buffer, FILE* fbuffer, size_t bufferSize)
     {
         for(int i = 0; i < paths.size(); i++)
         {
-            if(paths[i] == request.path && methods[i] == request.method && (events[i] != 0 || istemplate[i]))
+            if(paths[i] == request.path && methods[i] == request.method && (events[i] != 0 || istemplate[i] ||isupload[i]))
             {
                 if(istemplate[i])
                 {
                     return processTemplate(request, buffer, fbuffer, bufferSize, filePath[i], i);
+                }
+                if (isupload[i])
+                {
+                    return processMultiPartUpload(request, buffer, fbuffer, bufferSize, filePath[i], i);
                 }
                 return ((std::string(*)(HttpRequest& request, unsigned char* requestBodyBuffer, FILE* requestBodyFile, size_t bufferSize))(events[i]))(request, buffer, fbuffer, bufferSize);
             }
@@ -474,7 +742,7 @@ void handleHTTPSRequest(SocketType& server, RequestHandler* requestHandle = 0, b
             }
             if(requestHandle->containsPath(request.path, request.method, &mappedFile))
             {
-                if(mappedFile.empty() || requestHandle->isTemplate(request.path, request.method))
+                if(mappedFile.empty() || requestHandle->isTemplate(request.path, request.method) || requestHandle->isUpload(request.path, request.method))
                 {
                     if(transferSize > 2048)
                     {
@@ -483,6 +751,46 @@ void handleHTTPSRequest(SocketType& server, RequestHandler* requestHandle = 0, b
                     else
                     {
                         generatedBody = requestHandle->getEventResult(request, buffer, 0, transferSize);
+                    }
+                    if (requestHandle->isUpload(request.path, request.method))
+                    {
+                        std::string newMeth = "GET";
+                        request.attributes.set("content-type", "text/html");
+                        request.method = newMeth;
+                        if (requestHandle->containsPath(request.path, newMeth, &mappedFile))
+                        {
+                            generatedBody = requestHandle->getEventResult(request, buffer, 0, transferSize);
+                        }
+                        else
+                        {
+                            //std::string origin = request.attributes.get("origin");
+                            std::string origin = "";
+                            origin = request.attributes.get("origin");
+                            if (!origin.empty() && origin != "/")
+                            {
+                                mappedFile = "";
+                                request.path = origin;
+                                int o = 0;
+                                int idx = 0;
+                                while (o < 3 && idx<origin.size())
+                                {
+                                    if (request.path[idx] == '/')
+                                    {
+                                        o++;
+                                    }
+                                    idx++;
+                                }
+                                request.path = "/" + request.path.substr(idx);
+                                generatedBody = "";
+                                mappedFile = "";
+                            }
+                            else
+                            {
+                                mappedFile = "";
+                                request.path = "/";
+                                generatedBody = "";
+                            }
+                        }
                     }
                 }
             }
@@ -806,6 +1114,8 @@ class Webserver
     std::vector<std::string> sessions;
 
     public:
+    std::string privatKeyPath = "";
+    std::string publicKeyPath = "";
     bool addSession(std::string ip)
     {
         for(int i = 0; i < sessions.size(); i++)
@@ -858,12 +1168,22 @@ class Webserver
         }
     }
 
+    void bindMultiPartFileUpload(std::string requestPath, std::string requestMethod, std::string storageDirectory)
+    {
+        std::string meth = toUppercase(requestMethod);
+        if (!boost::filesystem::exists(boost::filesystem::path(storageDirectory)))
+        {
+            boost::filesystem::create_directory(boost::filesystem::path(storageDirectory));
+        }
+        customRequests.setPathMultiPartFileUpload(requestPath, meth, storageDirectory);
+    }
+
     static void sThreadSafe(void* params)
     {
-        void **parm = (void**)params;
-        int port = (int)(uintptr_t)(parm[0]);
-        bool https = (bool)(uintptr_t)(parm[1]);
-        bool consoleOutput = (bool)(uintptr_t)(parm[2]);
+        uintptr_t *parm = (uintptr_t*)params;
+        int port = (int)(parm[0]);
+        bool https = (bool)(parm[1]);
+        bool consoleOutput = (bool)(parm[2]);
         Webserver* wserver = (Webserver*)parm[3];
         boost::asio::ip::tcp::endpoint* serverV4 = (boost::asio::ip::tcp::endpoint*)parm[4];
         boost::asio::ip::tcp::endpoint* serverV6 = (boost::asio::ip::tcp::endpoint*)parm[5];
@@ -927,10 +1247,10 @@ class Webserver
 
     static void sThreadUnsafe(void* params)
     {
-        void **parm = (void**)params;
-        int port = (int)(uintptr_t)(parm[0]);
-        bool https = (bool)(uintptr_t)(parm[1]);
-        bool consoleOutput = (bool)(uintptr_t)(parm[2]);
+        uintptr_t *parm = (uintptr_t*)params;
+        int port = (int)(parm[0]);
+        bool https = (bool)(parm[1]);
+        bool consoleOutput = (bool)(parm[2]);
         Webserver* wserver = (Webserver*)parm[3];
         boost::asio::ip::tcp::endpoint* server = (boost::asio::ip::tcp::endpoint*)parm[4];
         boost::asio::io_service* io_service = (boost::asio::io_service*)parm[5];
@@ -987,13 +1307,12 @@ class Webserver
         }
     }
 
-    void sthread(void* params, int threads)
+    void sthread(uintptr_t* params, int threads)
     {
-        void **parm = (void**)params;
-        int port = (int)(uintptr_t)(parm[0]);
-        bool https = (bool)(uintptr_t)(parm[1]);
-        bool consoleOutput = (bool)(uintptr_t)(parm[2]);
-        Webserver* wserver = (Webserver*)parm[3];
+        int port = (int)(params[0]);
+        bool https = (bool)(params[1]);
+        bool consoleOutput = (bool)(params[2]);
+        Webserver* wserver = (Webserver*)(params[3]);
 		pthread_t thread[64];
         if(https)
         {
@@ -1003,20 +1322,20 @@ class Webserver
             boost::asio::ip::tcp::acceptor acceptorV4(io_service, serverV4);
             //boost::asio::ip::tcp::acceptor acceptorV6(io_service, serverV6);
             boost::asio::ssl::context ssl_context(boost::asio::ssl::context::tlsv13_server);
-            ssl_context.use_certificate_file("certs/newcert.pem", boost::asio::ssl::context_base::pem);
-            ssl_context.use_private_key_file("certs/privkey.pem", boost::asio::ssl::context_base::pem);
+            ssl_context.use_certificate_file(wserver->publicKeyPath, boost::asio::ssl::context_base::pem);
+            ssl_context.use_private_key_file(wserver->privatKeyPath, boost::asio::ssl::context_base::pem);
             //ssl_context.use_tmp_dh_file("certs/dh2048.pem");
             
-            void *args[9];
-            args[0] = parm[0];
-            args[1] = parm[1];
-            args[2] = parm[2];
-            args[3] = parm[3];
-            args[4] = (void*)&serverV4;
-            args[5] = (void*)&serverV6;
-            args[6] = (void*)&io_service;
-            args[7] = (void*)&acceptorV4;
-            args[8] = (void*)&ssl_context;
+            uintptr_t args[9];
+            args[0] = params[0];
+            args[1] = params[1];
+            args[2] = params[2];
+            args[3] = params[3];
+            args[4] = (uintptr_t)(&serverV4);
+            args[5] = (uintptr_t)(&serverV6);
+            args[6] = (uintptr_t)(&io_service);
+            args[7] = (uintptr_t)(&acceptorV4);
+            args[8] = (uintptr_t)(&ssl_context);
             uintptr_t* f = (uintptr_t*)(sThreadSafe);
             for(int i = 0; i < threads; i++)
             {
@@ -1033,14 +1352,14 @@ class Webserver
             boost::asio::io_service io_service;
             boost::asio::ip::tcp::acceptor acceptor(io_service, server);
 
-            void *args[9];
-            args[0] = parm[0];
-            args[1] = parm[1];
-            args[2] = parm[2];
-            args[3] = parm[3];
-            args[4] = (void*)&server;
-            args[5] = (void*)&io_service;
-            args[6] = (void*)&acceptor;
+            uintptr_t args[9];
+            args[0] = params[0];
+            args[1] = params[1];
+            args[2] = params[2];
+            args[3] = params[3];
+            args[4] = (uintptr_t)(&server);
+            args[5] = (uintptr_t)(&io_service);
+            args[6] = (uintptr_t)(&acceptor);
             uintptr_t* f = (uintptr_t*)(sThreadUnsafe);
             for(int i = 0; i < threads; i++)
             {
@@ -1053,17 +1372,20 @@ class Webserver
         }
     }
 
-    void run(int port, bool https = true, bool consoleOutput = true, int threads = 8)
+    void run(int port, bool https = true, std::string pathToPublicKey = "certs/newcert.pem", std::string pathToPrivatKey = "certs/privkey.pem", bool consoleOutput = true, int threads = 8)
     {
         if(!boost::filesystem::exists(boost::filesystem::path("./tmp")))
         {
             boost::filesystem::create_directory(boost::filesystem::path("./tmp"));
         }
-        void *args[4];
-        args[0] = (void*)(*((uintptr_t*)&port));
-        args[1] = (void*)(*((uintptr_t*)&https));
-        args[2] = (void*)(*((uintptr_t*)&consoleOutput));
-        args[3] = this;
+        this->privatKeyPath = pathToPrivatKey;
+        this->publicKeyPath = pathToPublicKey;
+
+        uintptr_t args[4];
+        args[0] = (uintptr_t)(port);
+        args[1] = (uintptr_t)(https);
+        args[2] = (uintptr_t)(consoleOutput);
+        args[3] = (uintptr_t)(this);
         sthread(args, threads);
     }
 };

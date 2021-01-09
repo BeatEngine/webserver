@@ -1,11 +1,7 @@
 #include <stdio.h>
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
-/*
-##define BOOST_ALL_NO_LIB
-##define BOOST_THREAD_USE_LIB
-##define BOOST_FILESYSTEM_USE_LIB
-##define BOOST_ASIO_USE_LIB*/
+
 #include "HttpRequest.h"
 #include "Server.h"
 
@@ -103,13 +99,15 @@ int main(int args, char** argv)
     valueMappingT1.put("testelements", "[\"lol\", \"display\", \"display\", \"nodisplay\", \"display\", \"display\"]");
     server.bindTemplate("/template", "GET", "./TEMPLATES/template.html", valueMappingT1);
     server.bindEvent("/add", "POST", sum);
+    server.bindMultiPartFileUpload("/upload", "POST", "uploads");
     if(port == 80)
     {
         secure = false;
     }
-    server.run(port, secure, consoleOutput,8);
 
-
+    server.run(port, secure, "certs/newcert.pem", "certs/privkey.pem", consoleOutput, 8);
+    
+    
     return 0;
 }
 

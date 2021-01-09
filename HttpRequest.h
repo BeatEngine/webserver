@@ -224,6 +224,7 @@ public:
                     {
                         var = lines.at(i).substr(0, o);
                         a = o + 1;
+                        break;
                     }
                 }
                 if(a > 1)
