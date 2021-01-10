@@ -274,69 +274,105 @@ class RequestHandler
                     else
                     {
                         long pageSize = 1024;
-                        unsigned char buff[1025];
+                        unsigned char buff[1025] = { 0 };
                         long page = 0;
 
                         fseek(fbuffer, 0, SEEK_END);
                         bufferSize = ftell(fbuffer);
                         fseek(fbuffer, 0, SEEK_SET);
 
-                        fread(buff, sizeof(char), 1024, fbuffer);
-
-                        long f = 0;
-                        long start = 0;
-                        std::string info = "";
-
-                        for (long i = 4; i < pageSize; i++)
+                        int sread = fread(buff, sizeof(char), pageSize, fbuffer);
+                        while (sread < pageSize)
                         {
-                            if (buff[i - 3] == '\r' && buff[i - 2] == '\n' && buff[i - 1] == '\r' && buff[i] == '\n')
-                            {
-                                start = i;
-                                break;
-                            }
+                            sread += fread(buff + sread, sizeof(char), pageSize - sread, fbuffer);
                         }
 
-                        for (long i = start; i < bufferSize; i++)
+                        std::string info = "";
+                        long start = 0;
+                        long i = std::string((char*)buff).find("\r\n\r\n")+4;
+                        long f = 0;
+
+                        for (i = i; i < bufferSize; i++)
                         {
-                            for (f = 0; f < boundary.size() && i+f < bufferSize; f++)
+                            if (i - page * pageSize >= pageSize)
                             {
-                                if (i+f >= pageSize + page * pageSize)
+                                if ((page + 1) * pageSize < bufferSize)
                                 {
                                     int read = fread(buff, sizeof(char), pageSize, fbuffer);
-                                    for (int err = 0; err < pageSize - read; err++)
+                                    while (read < pageSize)
                                     {
-                                        fread(buff + read + err, 1, 1, fbuffer);
+                                        read += fread(buff + read, sizeof(char), pageSize - read, fbuffer);
                                     }
-                                    page++;
                                 }
-                                if (buff[i + f - page*pageSize] != boundary[f])
+                                else
                                 {
-                                    break;
+                                    fread(buff, sizeof(char), bufferSize- page * pageSize, fbuffer);
                                 }
+                                page++;
+                            }
+                            if (buff[i - page * pageSize] == boundary[f])
+                            {
+                                f++;
+                            }
+                            else
+                            {
+                                fseek(fbuffer, -f+1, SEEK_CUR);
+                                i -= f;
+                                f = 0;
                             }
                             if (f == boundary.size())
                             {
+                                f = 0;
                                 if (info.empty())
                                 {
-                                    long d = i + f;
-                                    while (d < bufferSize)
+                                    int cmp = 0;
+                                    while (i < bufferSize)
                                     {
-                                        if (d >= pageSize + page * pageSize)
+                                        if (i - page * pageSize >= pageSize)
                                         {
-                                            int read = fread(buff, sizeof(char), pageSize, fbuffer);
-                                            for (int err = 0; err < pageSize - read; err++)
+                                            if ((page + 1) * pageSize < bufferSize)
                                             {
-                                                fread(buff + read + err, 1, 1, fbuffer);
+                                                int read = fread(buff, sizeof(char), pageSize, fbuffer);
+                                                while (read < pageSize)
+                                                {
+                                                    read += fread(buff + read, sizeof(char), pageSize - read, fbuffer);
+                                                }
+                                            }
+                                            else
+                                            {
+                                                fread(buff, sizeof(char), bufferSize - page * pageSize, fbuffer);
                                             }
                                             page++;
                                         }
-                                        if (buff[d - page * pageSize] == '\r' && buff[d - page * pageSize + 1] == '\n' && buff[d - page * pageSize + 2] == '\r' && buff[d - page * pageSize + 3] == '\n')
+                                        if (buff[i - page * pageSize] == '\r' && cmp == 0)
                                         {
-                                            long pos = info.find("filename");
+                                            cmp++;
+                                        }
+                                        else if (buff[i - page * pageSize] == '\n' && cmp == 1)
+                                        {
+                                            cmp++;
+                                        }
+                                        else if (buff[i - page * pageSize] == '\r' && cmp == 2)
+                                        {
+                                            cmp++;
+                                        }
+                                        else if (buff[i - page * pageSize] == '\n' && cmp == 3)
+                                        {
+                                            cmp++;
+                                        }
+                                        else
+                                        {
+                                            cmp = 0;
+                                        }
+
+                                        if(cmp == 4)
+                                        {
+                                            cmp = 0;
+                                            int pos = info.find("filename");
                                             if (pos >= 0)
                                             {
                                                 info = info.substr(pos);
-                                                for (long c = 0; c < info.length(); c++)
+                                                for (int c = 0; c < info.length(); c++)
                                                 {
                                                     if (info[c] == '\r')
                                                     {
@@ -345,16 +381,17 @@ class RequestHandler
                                                     }
                                                 }
                                             }
-                                            d += 4;
+                                            start = i + 1;
                                             break;
                                         }
-                                        info += buff[d - page * pageSize];
-                                        d++;
+                                        info += (char)buff[i - page * pageSize];
+                                        i++;
                                     }
-                                    start = d;
+                                    start = i;
                                 }
                                 else
                                 {
+
                                     std::string filename = "";
                                     std::vector<std::string> prts = StringUtils::split(info, "=", false);
                                     if (prts.size() == 2)
@@ -364,39 +401,117 @@ class RequestHandler
                                         {
                                             filename = filename.substr(1, filename.length() - 2);
                                         }
-                                        FILE* file = fopen((uploadDirectory + filename).c_str(), "wb");
-
+                                    }
+                                    
+                                    long here = ftell(fbuffer);
+                                    start += 1;
+                                    fseek(fbuffer, start, SEEK_SET);
+                                    long sz = here - start - boundary.size() - 4;
+                                    FILE* uploadfile = fopen((uploadDirectory + filename).c_str(), "wb");
+                                    unsigned char tmpb[1025];
+                                    int tr = 0;
+                                    for (long l = 0; l < sz; l=l)
+                                    {
                                         
-                                        
-                                        for (long index = start - page*pageSize; index < i + f; index=index)
+                                        if (sz - l < 1024)
                                         {
-                                            if (index >= pageSize + page * pageSize)
+                                            tr = fread(tmpb, 1, sz - l, fbuffer);
+                                            while (tr < sz - l)
                                             {
-                                                int read = fread(buff, sizeof(char), pageSize, fbuffer);
-                                                for (int err = 0; err < pageSize - read; err++)
-                                                {
-                                                    fread(buff + read + err, 1, 1, fbuffer);
-                                                }
-                                                page++;
+                                                tr += fread(tmpb + tr, 1, (sz - l) - tr, fbuffer);
                                             }
-                                            if (i - start - 4 < pageSize)
+                                            int bp = 0;
+                                            int bc = 0;
+                                            int found = -1;
+                                            for (int s = 0; s + boundary.size() < pageSize; s++)
                                             {
-                                                fwrite(buff + start - page * pageSize, sizeof(char), pageSize, file);
+                                                for (bc = 0; bc < boundary.size(); bc++)
+                                                {
+                                                    if (tmpb[s + bc] != boundary[bc])
+                                                    {
+                                                        bc = 0;
+                                                        break;
+                                                    }
+                                                }
+                                                if (bc == boundary.size())
+                                                {
+                                                    found = s;
+                                                    break;
+                                                }
+                                            }
+                                            if (found >= 0)
+                                            {
+                                                //found++;
+                                                tr = fwrite(tmpb, 1, found - 4, uploadfile);
+                                                while (tr < found - 4)
+                                                {
+                                                    tr += fwrite(tmpb + tr, 1, found - 4 - tr, uploadfile);
+                                                }
+                                                fseek(fbuffer, -found+1, SEEK_CUR);
+                                                i -= (found + 2);
                                                 break;
                                             }
-                                            else
+                                            tr = fwrite(tmpb, 1, sz - l, uploadfile);
+                                            while (tr < sz - l)
                                             {
-                                                fwrite(buff + start - page * pageSize, sizeof(char), pageSize, file);
-                                                index += pageSize;
+                                                tr += fwrite(tmpb + tr, 1, (sz - l) - tr, uploadfile);
                                             }
                                         }
-                                        fclose(file);
-
+                                        
+                                        else
+                                        {
+                                            tr = fread(tmpb, 1, pageSize, fbuffer);
+                                            while (tr < pageSize)
+                                            {
+                                                tr += fread(tmpb + tr, 1, pageSize - tr, fbuffer);
+                                            }
+                                            if (sz - l < 2048)
+                                            {
+                                                int bp = 0;
+                                                int bc = 0;
+                                                int found = -1;
+                                                for (int s = 0; s + boundary.size() < pageSize; s++)
+                                                {
+                                                    for (bc = 0; bc < boundary.size(); bc++)
+                                                    {
+                                                        if (tmpb[s + bc] != boundary[bc])
+                                                        {
+                                                            bc = 0;
+                                                            break;
+                                                        }
+                                                    }
+                                                    if (bc == boundary.size())
+                                                    {
+                                                        found = s;
+                                                        break;
+                                                    }
+                                                }
+                                                if (found >= 0)
+                                                {
+                                                    //found++;
+                                                    tr = fwrite(tmpb, 1, found-4, uploadfile);
+                                                    while (tr < found - 4)
+                                                    {
+                                                        tr += fwrite(tmpb + tr, 1, found - 4 - tr, uploadfile);
+                                                    }
+                                                    fseek(fbuffer, -found+1, SEEK_CUR);
+                                                    i -= (found + 2);
+                                                    break;
+                                                }
+                                            }
+                                            tr = fwrite(tmpb, 1, pageSize, uploadfile);
+                                            while (tr < pageSize)
+                                            {
+                                                tr += fwrite(tmpb + tr, 1, pageSize - tr, uploadfile);
+                                            }
+                                        }
+                                        l += tr;
                                     }
+                                    fclose(uploadfile);
+                                    fseek(fbuffer, here, SEEK_SET);
                                     info = "";
-                                    start = i + f;
+                                    start = i;
                                 }
-
                             }
                         }
                     }
@@ -621,6 +736,9 @@ void handleHTTPSRequest(SocketType& server, RequestHandler* requestHandle = 0, b
     std::string randomFN = "tmp/" + randomFilename();
     FILE* tmpStorage;
     bool useFileBuffer = false;
+    int timeoutcounter = 1000;
+    int timeoutdelay = 100;
+    long knownreceivesize = 0;
     while (true)
     {
         av = socketAvailable(server);
@@ -633,15 +751,21 @@ void handleHTTPSRequest(SocketType& server, RequestHandler* requestHandle = 0, b
             int stp = 0;
             while (av == 0)
             {
-                if(stp > 1000)
+                if(stp > timeoutcounter)
                 {
+                    if (transfered < knownreceivesize)
+                    {
+                        timeoutcounter = (long)(timeoutcounter*1.5f);
+                        knownreceivesize = 0;
+                        continue;
+                    }
                     if(transfered == 0)
                     {
                         break;
                     }
                     return;
                 }
-                usleep(100);
+                usleep(timeoutdelay);
                 av = socketAvailable(server);
                 stp ++;
             }
@@ -659,9 +783,14 @@ void handleHTTPSRequest(SocketType& server, RequestHandler* requestHandle = 0, b
                    tmpStorage = fopen(randomFN.c_str(), "wb");
                    useFileBuffer = true;
                 }
-                fwrite(buffer, 1, recv, tmpStorage);
+                int sucwrt = fwrite(buffer, 1, recv, tmpStorage);
+                while (sucwrt < recv)
+                {
+                    sucwrt += fwrite(buffer, 1, recv-sucwrt, tmpStorage);
+                }
             }
             recv = server.read_some(boost::asio::buffer(buffer, av));
+            //printf("%.*s", recv, buffer);
         }
         catch(std::exception e)
         {
@@ -677,6 +806,12 @@ void handleHTTPSRequest(SocketType& server, RequestHandler* requestHandle = 0, b
             else if(recv > 0 && request.method == "POST" && consoleOutput)
             {
                 printf("%s %s      %s\n",request.method.c_str(), request.path.c_str(), request.attributes.get("content-type").c_str());
+            }
+            if (request.method == "POST" && request.attributes.get("content-type").find("multipart") >= 0)
+            {
+                timeoutcounter = 4000;
+                timeoutdelay = 30;
+                knownreceivesize = atol(request.attributes.get("content-length").c_str());
             }
         }
         if(recv > 0)
@@ -695,7 +830,11 @@ void handleHTTPSRequest(SocketType& server, RequestHandler* requestHandle = 0, b
         {
             if(recv > 0)
             {
-                fwrite(buffer, 1, recv, tmpStorage);
+                int sucwrt = fwrite(buffer, 1, recv, tmpStorage);
+                while (sucwrt < recv)
+                {
+                    sucwrt += fwrite(buffer, 1, recv - sucwrt, tmpStorage);
+                }
             }
         }
         transfered = 0;
@@ -744,6 +883,9 @@ void handleHTTPSRequest(SocketType& server, RequestHandler* requestHandle = 0, b
             {
                 if(mappedFile.empty() || requestHandle->isTemplate(request.path, request.method) || requestHandle->isUpload(request.path, request.method))
                 {
+                    fclose(tmpStorage);
+                    tmpStorage = fopen(randomFN.c_str(), "rb");
+
                     if(transferSize > 2048)
                     {
                         generatedBody = requestHandle->getEventResult(request, 0, tmpStorage, transferSize);
@@ -1351,7 +1493,7 @@ class Webserver
             boost::asio::ip::tcp::endpoint server(boost::asio::ip::tcp::v4(), port);
             boost::asio::io_service io_service;
             boost::asio::ip::tcp::acceptor acceptor(io_service, server);
-
+            
             uintptr_t args[9];
             args[0] = params[0];
             args[1] = params[1];
