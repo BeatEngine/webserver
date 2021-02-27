@@ -51,6 +51,7 @@ void usleep(long mics)
 #include <boost/filesystem.hpp>
 #include "templateEngine.h"
 
+#include <iostream>
 
 std::string generateResponsehead(long sizeBytes, HttpRequest& request, std::string customAttribute = "")
 {
@@ -271,11 +272,13 @@ class RequestHandler
                             }
                         }
                     }
-                    else
+                    else /* File Buffer */
                     {
                         long pageSize = 1024;
                         unsigned char buff[1025] = { 0 };
                         long page = 0;
+
+
 
                         fseek(fbuffer, 0, SEEK_END);
                         bufferSize = ftell(fbuffer);
@@ -288,232 +291,163 @@ class RequestHandler
                         }
 
                         std::string info = "";
-                        long start = 0;
-                        long i = std::string((char*)buff).find("\r\n\r\n")+4;
-                        long f = 0;
 
+                        std::string infoEnd = "\r\n\r\n";
+
+                        long start = 0;
+                        long i = std::string((char*)buff).find("\r\n\r\n")+2;
+
+                        long fbndry = std::string((char*)buff).find(boundary, i);
+
+                        if (fbndry != -1)
+                        {
+                            fbndry--;
+                            while (buff[fbndry] != '\n')
+                            {
+                                boundary.insert(boundary.begin(), buff[fbndry]);
+                                fbndry--;
+                            }
+                            boundary = "\r\n" + boundary;
+                        }
+
+                        long f = 0;
+                        long headEnd = i;
+
+                        unsigned char search[500] = { 0 };
+                        long sp = 0;
+
+                        unsigned char byte;
+
+                        FILE* currentUploadFile = 0;
+
+                        fseek(fbuffer, i, SEEK_SET);
                         for (i = i; i < bufferSize; i++)
                         {
-                            if (i - page * pageSize >= pageSize)
+                            fread(&byte, 1, 1, fbuffer);
+                            if (byte == boundary[sp])
                             {
-                                if ((page + 1) * pageSize < bufferSize)
-                                {
-                                    int read = fread(buff, sizeof(char), pageSize, fbuffer);
-                                    while (read < pageSize)
-                                    {
-                                        read += fread(buff + read, sizeof(char), pageSize - read, fbuffer);
-                                    }
-                                }
-                                else
-                                {
-                                    fread(buff, sizeof(char), bufferSize- page * pageSize, fbuffer);
-                                }
-                                page++;
-                            }
-                            if (buff[i - page * pageSize] == boundary[f])
-                            {
-                                f++;
+                                search[sp] = byte;
+                                sp++;
                             }
                             else
                             {
-                                fseek(fbuffer, -f+1, SEEK_CUR);
-                                i -= f;
-                                f = 0;
-                            }
-                            if (f == boundary.size())
-                            {
-                                f = 0;
-                                if (info.empty())
+                                if (sp == 0)
                                 {
-                                    int cmp = 0;
-                                    while (i < bufferSize)
+                                    if (currentUploadFile)
                                     {
-                                        if (i - page * pageSize >= pageSize)
-                                        {
-                                            if ((page + 1) * pageSize < bufferSize)
-                                            {
-                                                int read = fread(buff, sizeof(char), pageSize, fbuffer);
-                                                while (read < pageSize)
-                                                {
-                                                    read += fread(buff + read, sizeof(char), pageSize - read, fbuffer);
-                                                }
-                                            }
-                                            else
-                                            {
-                                                fread(buff, sizeof(char), bufferSize - page * pageSize, fbuffer);
-                                            }
-                                            page++;
-                                        }
-                                        if (buff[i - page * pageSize] == '\r' && cmp == 0)
-                                        {
-                                            cmp++;
-                                        }
-                                        else if (buff[i - page * pageSize] == '\n' && cmp == 1)
-                                        {
-                                            cmp++;
-                                        }
-                                        else if (buff[i - page * pageSize] == '\r' && cmp == 2)
-                                        {
-                                            cmp++;
-                                        }
-                                        else if (buff[i - page * pageSize] == '\n' && cmp == 3)
-                                        {
-                                            cmp++;
-                                        }
-                                        else
-                                        {
-                                            cmp = 0;
-                                        }
-
-                                        if(cmp == 4)
-                                        {
-                                            cmp = 0;
-                                            int pos = info.find("filename");
-                                            if (pos >= 0)
-                                            {
-                                                info = info.substr(pos);
-                                                for (int c = 0; c < info.length(); c++)
-                                                {
-                                                    if (info[c] == '\r')
-                                                    {
-                                                        info = info.substr(0, c);
-                                                        break;
-                                                    }
-                                                }
-                                            }
-                                            start = i + 1;
-                                            break;
-                                        }
-                                        info += (char)buff[i - page * pageSize];
-                                        i++;
+                                        fwrite(&byte, 1, 1, currentUploadFile);
                                     }
-                                    start = i;
                                 }
                                 else
                                 {
-
-                                    std::string filename = "";
-                                    std::vector<std::string> prts = StringUtils::split(info, "=", false);
-                                    if (prts.size() == 2)
+                                    if (currentUploadFile)
                                     {
-                                        filename = prts[1];
-                                        if (filename[0] == '"' && filename[filename.length() - 1] == '"')
-                                        {
-                                            filename = filename.substr(1, filename.length() - 2);
-                                        }
+                                        fwrite(search, 1, 1, currentUploadFile);
                                     }
-                                    
-                                    long here = ftell(fbuffer);
-                                    start += 1;
-                                    fseek(fbuffer, start, SEEK_SET);
-                                    long sz = here - start - boundary.size() - 4;
-                                    FILE* uploadfile = fopen((uploadDirectory + filename).c_str(), "wb");
-                                    unsigned char tmpb[1025];
-                                    int tr = 0;
-                                    for (long l = 0; l < sz; l=l)
+                                    /*if (currentUploadFile)
                                     {
-                                        
-                                        if (sz - l < 1024)
+                                        fwrite(search, 1, sp, currentUploadFile);
+                                    }*/
+                                    fseek(fbuffer, -sp + 0, SEEK_CUR);
+                                    i -= sp;
+                                    sp = 0;
+                                    continue;
+                                }
+
+                                sp = 0;
+
+                            }
+                            if (sp == boundary.size())
+                            {
+                                sp = 0;
+                                info = "";
+                                
+                                for (i = i; i < bufferSize; i++)
+                                {
+                                    fread(&byte, 1, 1, fbuffer);
+                                    if (byte == infoEnd[sp])
+                                    {
+                                        search[sp] = byte;
+                                        sp++;
+                                    }
+                                    else
+                                    {
+                                        if (sp == 0)
                                         {
-                                            tr = fread(tmpb, 1, sz - l, fbuffer);
-                                            while (tr < sz - l)
-                                            {
-                                                tr += fread(tmpb + tr, 1, (sz - l) - tr, fbuffer);
-                                            }
-                                            int bp = 0;
-                                            int bc = 0;
-                                            int found = -1;
-                                            for (int s = 0; s + boundary.size() < pageSize; s++)
-                                            {
-                                                for (bc = 0; bc < boundary.size(); bc++)
-                                                {
-                                                    if (tmpb[s + bc] != boundary[bc])
-                                                    {
-                                                        bc = 0;
-                                                        break;
-                                                    }
-                                                }
-                                                if (bc == boundary.size())
-                                                {
-                                                    found = s;
-                                                    break;
-                                                }
-                                            }
-                                            if (found >= 0)
-                                            {
-                                                //found++;
-                                                tr = fwrite(tmpb, 1, found - 4, uploadfile);
-                                                while (tr < found - 4)
-                                                {
-                                                    tr += fwrite(tmpb + tr, 1, found - 4 - tr, uploadfile);
-                                                }
-                                                fseek(fbuffer, -found+1, SEEK_CUR);
-                                                i -= (found + 2);
-                                                break;
-                                            }
-                                            tr = fwrite(tmpb, 1, sz - l, uploadfile);
-                                            while (tr < sz - l)
-                                            {
-                                                tr += fwrite(tmpb + tr, 1, (sz - l) - tr, uploadfile);
-                                            }
+                                            info += byte;
                                         }
-                                        
                                         else
                                         {
-                                            tr = fread(tmpb, 1, pageSize, fbuffer);
-                                            while (tr < pageSize)
+                                            for (int a = 0; a < sp; a++)
                                             {
-                                                tr += fread(tmpb + tr, 1, pageSize - tr, fbuffer);
-                                            }
-                                            if (sz - l < 2048)
-                                            {
-                                                int bp = 0;
-                                                int bc = 0;
-                                                int found = -1;
-                                                for (int s = 0; s + boundary.size() < pageSize; s++)
-                                                {
-                                                    for (bc = 0; bc < boundary.size(); bc++)
-                                                    {
-                                                        if (tmpb[s + bc] != boundary[bc])
-                                                        {
-                                                            bc = 0;
-                                                            break;
-                                                        }
-                                                    }
-                                                    if (bc == boundary.size())
-                                                    {
-                                                        found = s;
-                                                        break;
-                                                    }
-                                                }
-                                                if (found >= 0)
-                                                {
-                                                    //found++;
-                                                    tr = fwrite(tmpb, 1, found-4, uploadfile);
-                                                    while (tr < found - 4)
-                                                    {
-                                                        tr += fwrite(tmpb + tr, 1, found - 4 - tr, uploadfile);
-                                                    }
-                                                    fseek(fbuffer, -found+1, SEEK_CUR);
-                                                    i -= (found + 2);
-                                                    break;
-                                                }
-                                            }
-                                            tr = fwrite(tmpb, 1, pageSize, uploadfile);
-                                            while (tr < pageSize)
-                                            {
-                                                tr += fwrite(tmpb + tr, 1, pageSize - tr, uploadfile);
+                                                info += search[a];
                                             }
                                         }
-                                        l += tr;
+                                        if (sp != 0)
+                                        {
+                                            fseek(fbuffer, -sp + 1, SEEK_CUR);
+                                            i -= sp;
+                                        }
+                                        
+                                        sp = 0;
                                     }
-                                    fclose(uploadfile);
-                                    fseek(fbuffer, here, SEEK_SET);
-                                    info = "";
-                                    start = i;
+                                    if (sp == infoEnd.size())
+                                    {
+
+                                        break;
+                                    }
                                 }
+                                sp = 0;
+                                int fnp = info.find("filename=");
+                                if (currentUploadFile)
+                                {
+                                    fclose(currentUploadFile);
+                                    currentUploadFile = 0;
+                                }
+                                if (fnp == -1)
+                                {
+                                    time_t ti = time(NULL);
+                                    tm tim = *localtime(&ti);
+
+                                    std::string noFileName = "UNKNOWN_";
+                                    noFileName += std::to_string(tim.tm_mday) + "." + std::to_string(tim.tm_mon + 1) + "." + std::to_string(tim.tm_year + 1900) + " " + std::to_string(tim.tm_hour) + "-" + std::to_string(tim.tm_min) + "-" + std::to_string(tim.tm_sec) + ".file";
+
+                                    currentUploadFile = fopen((uploadDirectory + noFileName).c_str(), "wb");
+                                }
+                                else
+                                {
+                                    fnp += 9;
+                                    std::string filename = "";
+                                    for (int b = fnp; b < info.size(); b++)
+                                    {
+                                        if (info[b] == '\r' || info[b] == '\n' || b == info.size()-1)
+                                        {
+                                            filename = info.substr(fnp, b-fnp);
+                                            if (filename[0] == '"')
+                                            {
+                                                filename = filename.substr(1);
+                                            }
+                                            if (filename.size() > 0)
+                                            {
+                                                if (filename[filename.size() - 1] == '"')
+                                                {
+                                                    filename = filename.substr(0, filename.size() - 1);
+                                                }
+                                            }
+                                            break;
+                                        }
+                                    }
+                                    printf("%s\n", filename.c_str());
+                                    currentUploadFile = fopen((uploadDirectory + filename).c_str(), "wb");
+                                }
+                                sp = 0;
                             }
                         }
+                        if (currentUploadFile)
+                        {
+                            fclose(currentUploadFile);
+                        }
+
                     }
                 }
             }
@@ -734,11 +668,12 @@ void handleHTTPSRequest(SocketType& server, RequestHandler* requestHandle = 0, b
     HttpRequest request;
     bool secure = typeid(SocketType) == typeid(ssl_socket);
     std::string randomFN = "tmp/" + randomFilename();
-    FILE* tmpStorage;
+    FILE* tmpStorage = 0;
     bool useFileBuffer = false;
     int timeoutcounter = 1000;
     int timeoutdelay = 100;
     long knownreceivesize = 0;
+    clock_t timeBegin = clock();
     while (true)
     {
         av = socketAvailable(server);
@@ -753,12 +688,6 @@ void handleHTTPSRequest(SocketType& server, RequestHandler* requestHandle = 0, b
             {
                 if(stp > timeoutcounter)
                 {
-                    if (transfered < knownreceivesize)
-                    {
-                        timeoutcounter = (long)(timeoutcounter*1.5f);
-                        knownreceivesize = 0;
-                        continue;
-                    }
                     if(transfered == 0)
                     {
                         break;
@@ -809,7 +738,7 @@ void handleHTTPSRequest(SocketType& server, RequestHandler* requestHandle = 0, b
             }
             if (request.method == "POST" && request.attributes.get("content-type").find("multipart") >= 0)
             {
-                timeoutcounter = 4000;
+                timeoutcounter = 16;
                 timeoutdelay = 30;
                 knownreceivesize = atol(request.attributes.get("content-length").c_str());
             }
@@ -820,7 +749,10 @@ void handleHTTPSRequest(SocketType& server, RequestHandler* requestHandle = 0, b
         }
         if(recv <= 0)
         {
-            break;
+            if (transferSize >= knownreceivesize || (clock()-timeBegin)/CLOCKS_PER_SEC > 5)
+            {
+                break;
+            }
         }
     }
     
@@ -836,6 +768,10 @@ void handleHTTPSRequest(SocketType& server, RequestHandler* requestHandle = 0, b
                     sucwrt += fwrite(buffer, 1, recv - sucwrt, tmpStorage);
                 }
             }
+        }
+        if (useFileBuffer)
+        {
+            fflush(tmpStorage);
         }
         transfered = 0;
         snd = 0;
@@ -1516,6 +1452,24 @@ class Webserver
 
     void run(int port, bool https = true, std::string pathToPublicKey = "certs/newcert.pem", std::string pathToPrivatKey = "certs/privkey.pem", bool consoleOutput = true, int threads = 8)
     {
+        bool noCert = false;
+        if (!boost::filesystem::exists(boost::filesystem::path(pathToPublicKey)))
+        {
+            printf("Error: Public SSL cert not found (%s)\n", pathToPublicKey.c_str());
+            noCert = true;
+        }
+        if (!boost::filesystem::exists(boost::filesystem::path(pathToPrivatKey)))
+        {
+            printf("Error: Private SSL cert not found (%s)\n", pathToPrivatKey.c_str());
+            noCert = true;
+        }
+        if (noCert)
+        {
+            //system("pause");
+            std::cin.get();
+            return;
+        }
+
         if(!boost::filesystem::exists(boost::filesystem::path("./tmp")))
         {
             boost::filesystem::create_directory(boost::filesystem::path("./tmp"));

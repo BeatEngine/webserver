@@ -11,15 +11,6 @@ std::string customRequestEvent(HttpRequest& request, unsigned char* body, FILE* 
     return "Custom Body! Your session: " + request.cookies.get("session") + "\n";
 }
 
-std::string receiveAudioData(HttpRequest& request, unsigned char* body, FILE* bigBody, size_t bodySize)
-{
-    return "OK";
-}
-
-std::string certbotVerification(HttpRequest& request, unsigned char* body, FILE* bigBody, size_t bodySize)
-{
-    return "OK";
-}
 
 std::string sum(HttpRequest& request, unsigned char* body, FILE* bigBody, size_t bodySize)
 {
@@ -89,8 +80,8 @@ int main(int args, char** argv)
     Webserver server;
     server.bindEvent("/event", "GET", customRequestEvent);
     server.bindFile("/source.cpp", "get", "./main.cpp");
-    server.bindEvent("/audio/input", "POST", receiveAudioData);
-    server.bindEvent("/.well-known/acme-challenge/*", "GET", certbotVerification);
+
+    server.bindEvent("/add", "POST", sum);
 
     StringMap valueMappingT1;
     valueMappingT1.put("variable","value");
@@ -98,13 +89,13 @@ int main(int args, char** argv)
     valueMappingT1.put("testelements_sz","6");
     valueMappingT1.put("testelements", "[\"lol\", \"display\", \"display\", \"nodisplay\", \"display\", \"display\"]");
     server.bindTemplate("/template", "GET", "./TEMPLATES/template.html", valueMappingT1);
-    server.bindEvent("/add", "POST", sum);
+
     server.bindMultiPartFileUpload("/upload", "POST", "uploads");
     if(port == 80)
     {
         secure = false;
     }
-
+    
     server.run(port, secure, "certs/newcert.pem", "certs/privkey.pem", consoleOutput, 8);
     
     
