@@ -464,7 +464,7 @@ class RequestHandler
         html = "";
         long sz = 0;
         long s;
-        FILE* tmpf = fopen(templateFilePath.c_str(), "r");
+        FILE* tmpf = fopen(templateFilePath.c_str(), "rb");
         fseek(tmpf, 0L, SEEK_END);
         long fsz = ftell(tmpf);
         fseek(tmpf, 0L, SEEK_SET);
@@ -670,8 +670,8 @@ void handleHTTPSRequest(SocketType& server, RequestHandler* requestHandle = 0, b
     std::string randomFN = "tmp/" + randomFilename();
     FILE* tmpStorage = 0;
     bool useFileBuffer = false;
-    int timeoutcounter = 1000;
-    int timeoutdelay = 100;
+    int timeoutcounter = 333;
+    int timeoutdelay = 30;
     long knownreceivesize = 0;
     clock_t timeBegin = clock();
     while (true)
@@ -718,6 +718,7 @@ void handleHTTPSRequest(SocketType& server, RequestHandler* requestHandle = 0, b
                     sucwrt += fwrite(buffer, 1, recv-sucwrt, tmpStorage);
                 }
             }
+            
             recv = server.read_some(boost::asio::buffer(buffer, av));
             //printf("%.*s", recv, buffer);
         }
