@@ -168,7 +168,7 @@ public:
         return true;
     }
 
-    static std::string substring(std::string& str, long a, long b = 999999999999999)
+    static std::string substring(std::string& str, long a, long b = LONG_MAX)
     {
         std::string result = "";
         for(int i = a; i < str.size() && i < b; i++)
@@ -178,7 +178,7 @@ public:
         return result;
     }
 
-    static std::string substring(std::string* str, long a, long b = 999999999999999)
+    static std::string substring(std::string* str, long a, long b = LONG_MAX)
     {
         std::string result = "";
         for(int i = a; i < str->size() && i < b; i++)
