@@ -406,13 +406,13 @@ class RequestHandler
                                 }
                                 if (fnp == -1)
                                 {
-                                    time_t ti = time(NULL);
+                                    /*time_t ti = time(NULL);
                                     tm tim = *localtime(&ti);
 
                                     std::string noFileName = "UNKNOWN_";
                                     noFileName += std::to_string(tim.tm_mday) + "." + std::to_string(tim.tm_mon + 1) + "." + std::to_string(tim.tm_year + 1900) + " " + std::to_string(tim.tm_hour) + "-" + std::to_string(tim.tm_min) + "-" + std::to_string(tim.tm_sec) + ".file";
 
-                                    currentUploadFile = fopen((uploadDirectory + noFileName).c_str(), "wb");
+                                    currentUploadFile = fopen((uploadDirectory + noFileName).c_str(), "wb");*/
                                 }
                                 else
                                 {
@@ -670,7 +670,7 @@ void handleHTTPSRequest(SocketType& server, RequestHandler* requestHandle = 0, b
     std::string randomFN = "tmp/" + randomFilename();
     FILE* tmpStorage = 0;
     bool useFileBuffer = false;
-    int timeoutcounter = 333;
+    int timeoutcounter = 4;//333;
     int timeoutdelay = 30;
     long knownreceivesize = 0;
     clock_t timeBegin = clock();
@@ -680,6 +680,14 @@ void handleHTTPSRequest(SocketType& server, RequestHandler* requestHandle = 0, b
         if(av > 2048)
         {
             av = 2048;
+        }
+        if (knownreceivesize > 0 && av < knownreceivesize - transferSize)
+        {
+            av = knownreceivesize-transferSize;
+            if (av > 2048)
+            {
+                av = 2048;
+            }
         }
         if(av == 0)
         {
@@ -742,6 +750,11 @@ void handleHTTPSRequest(SocketType& server, RequestHandler* requestHandle = 0, b
                 timeoutcounter = 16;
                 timeoutdelay = 30;
                 knownreceivesize = atol(request.attributes.get("content-length").c_str());
+                int headLength = std::string((char*)buffer).find("\r\n\r\n");
+                if (headLength > 0)
+                {
+                    knownreceivesize += headLength + 4;
+                }
             }
         }
         if(recv > 0)

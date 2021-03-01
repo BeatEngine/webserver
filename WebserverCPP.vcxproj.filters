@@ -33,4 +33,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
+  <ItemGroup>
+    <None Include="templates\template.html" />
+    <None Include="web\chat.html" />
+    <None Include="web\index.html" />
+  </ItemGroup>
 </Project>
