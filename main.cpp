@@ -20,6 +20,46 @@ std::string sum(HttpRequest& request, unsigned char* body, FILE* bigBody, size_t
     return std::to_string(a+b);
 }
 
+ 
+std::string downloadUpload(HttpRequest& request, unsigned char* body, FILE* bigBody, size_t bodySize)
+{
+    std::string encoded = request.path.substr(strlen("/download/"));
+    /* Mapping and decode*/
+    std::string filepath = "uploads\\" + request.urlDecode(encoded);
+
+    return filepath;
+}
+
+std::string showUploads(HttpRequest& request, unsigned char* body, FILE* bigBody, size_t bodySize)
+{
+    boost::filesystem::path uploadFolder = "uploads";
+    boost::filesystem::directory_iterator dir(uploadFolder);
+    boost::filesystem::directory_iterator end;
+
+    std::string jsonUploads = "[";
+    bool notFirst = false;
+    for (dir; dir != end; dir++)
+    {
+        boost::filesystem::path entry = dir->path();
+        if (boost::filesystem::is_regular_file(entry))
+        {
+            if (notFirst)
+            {
+                jsonUploads += ", ";
+            }
+            else
+            {
+                notFirst = true;
+            }
+            jsonUploads += "\"" + entry.filename().string() + "\"";
+        }
+    }
+    jsonUploads += "]";
+    
+
+    return jsonUploads;
+}
+
 
 int main(int args, char** argv)
 {
@@ -89,6 +129,9 @@ int main(int args, char** argv)
     valueMappingT1.put("testelements_sz","6");
     valueMappingT1.put("testelements", "[\"lol\", \"display\", \"display\", \"nodisplay\", \"display\", \"display\"]");
     server.bindTemplate("/template", "GET", "./TEMPLATES/template.html", valueMappingT1);
+
+    server.bindEvent("/uploads", "POST", showUploads);
+    server.bindFileDownload("/download/*", "GET", downloadUpload);
 
     server.bindMultiPartFileUpload("/upload", "POST", "uploads");
     if(port == 80)

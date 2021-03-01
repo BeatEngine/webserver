@@ -171,6 +171,7 @@ class RequestHandler
     std::vector<StringMap> templateVariables;
     std::vector<bool> istemplate;
     std::vector<bool> isupload;
+    std::vector<bool> isdownload;
 
     std::string processMultiPartUpload(HttpRequest& request, unsigned char* buffer, FILE* fbuffer, size_t bufferSize, std::string uploadDirectory, int index = 0)
     {
@@ -511,6 +512,19 @@ class RequestHandler
         filePath.push_back("");
         istemplate.push_back(false);
         isupload.push_back(false);
+        isdownload.push_back(false);
+        templateVariables.push_back(StringMap());
+    }
+
+    void setPathFileDownload(std::string& path, std::string& method, std::string(*event)(HttpRequest& request, unsigned char* requestBodyBuffer, FILE* requestBodyFile, size_t bufferSize))
+    {
+        paths.push_back(path);
+        methods.push_back(method);
+        events.push_back((void*)event);
+        filePath.push_back("");
+        istemplate.push_back(false);
+        isupload.push_back(false);
+        isdownload.push_back(true);
         templateVariables.push_back(StringMap());
     }
 
@@ -522,6 +536,7 @@ class RequestHandler
         filePath.push_back(pathToFile);
         istemplate.push_back(false);
         isupload.push_back(false);
+        isdownload.push_back(false);
         templateVariables.push_back(StringMap());
     }
 
@@ -533,6 +548,7 @@ class RequestHandler
         filePath.push_back(pathToFile);
         istemplate.push_back(true);
         isupload.push_back(false);
+        isdownload.push_back(false);
         templateVariables.push_back(values);
     }
 
@@ -544,6 +560,7 @@ class RequestHandler
         filePath.push_back(directory);
         istemplate.push_back(false);
         isupload.push_back(true);
+        isdownload.push_back(false);
         templateVariables.push_back(StringMap());
     }
 
@@ -598,17 +615,36 @@ class RequestHandler
         return false;
     }
 
+    bool isDownload(std::string& path, std::string& method)
+    {
+        for (int i = 0; i < paths.size(); i++)
+        {
+            if (paths[i] == path && methods[i] == method)
+            {
+                return isdownload[i];
+            }
+            else if (paths[i].length() - 1 <= path.length() && paths[i].substr(paths[i].length() - 1) == "*")
+            {
+                if (paths[i].substr(0, paths[i].length() - 1) == path.substr(0, paths[i].length() - 1) && methods[i] == method)
+                {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     std::string getEventResult(HttpRequest& request, unsigned char* buffer, FILE* fbuffer, size_t bufferSize)
     {
         for(int i = 0; i < paths.size(); i++)
         {
-            if(paths[i] == request.path && methods[i] == request.method && (events[i] != 0 || istemplate[i] ||isupload[i]))
+            if(paths[i] == request.path && methods[i] == request.method && (events[i] != 0 || istemplate[i] || isupload[i] || isdownload[i]))
             {
                 if(istemplate[i])
                 {
                     return processTemplate(request, buffer, fbuffer, bufferSize, filePath[i], i);
                 }
-                if (isupload[i])
+                else if (isupload[i])
                 {
                     return processMultiPartUpload(request, buffer, fbuffer, bufferSize, filePath[i], i);
                 }
@@ -831,7 +867,7 @@ void handleHTTPSRequest(SocketType& server, RequestHandler* requestHandle = 0, b
             }
             if(requestHandle->containsPath(request.path, request.method, &mappedFile))
             {
-                if(mappedFile.empty() || requestHandle->isTemplate(request.path, request.method) || requestHandle->isUpload(request.path, request.method))
+                if(mappedFile.empty() || requestHandle->isTemplate(request.path, request.method) || requestHandle->isUpload(request.path, request.method) || requestHandle->isDownload(request.path, request.method))
                 {
                     fclose(tmpStorage);
                     tmpStorage = fopen(randomFN.c_str(), "rb");
@@ -844,7 +880,12 @@ void handleHTTPSRequest(SocketType& server, RequestHandler* requestHandle = 0, b
                     {
                         generatedBody = requestHandle->getEventResult(request, buffer, 0, transferSize);
                     }
-                    if (requestHandle->isUpload(request.path, request.method))
+                    if (requestHandle->isDownload(request.path, request.method))
+                    {
+                        mappedFile = generatedBody;
+                        generatedBody = "";
+                    }
+                    else if (requestHandle->isUpload(request.path, request.method))
                     {
                         std::string newMeth = "GET";
                         request.attributes.set("content-type", "text/html");
@@ -1232,6 +1273,16 @@ class Webserver
     {
         std::string meth = toUppercase(requestMethod);
         customRequests.setPathEvent(requestPath, meth, event);
+    }
+
+    /**
+    * The Event returns a path to the downloadfile
+    *
+    */
+    void bindFileDownload(std::string requestPath, std::string requestMethod, std::string(*event)(HttpRequest& request, unsigned char* requestBodyBuffer, FILE* requestBodyFile, size_t bufferSize))
+    {
+        std::string meth = toUppercase(requestMethod);
+        customRequests.setPathFileDownload(requestPath, meth, event);
     }
 
     void bindFile(std::string requestPath, std::string requestMethod, std::string filePath)

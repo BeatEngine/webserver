@@ -76,18 +76,23 @@ class HttpRequest
         return new_str;
     }
 
+    
+
+public:
+
     std::string urlDecode(std::string& str)
     {
         std::string ret;
         char ch;
         int i, ii, len = str.length();
-        for (i=0; i < len; i++){
-            if(str[i] != '%'){
-                if(str[i] == '+')
+        for (i = 0; i < len; i++) {
+            if (str[i] != '%') {
+                if (str[i] == '+')
                     ret += ' ';
                 else
                     ret += str[i];
-            }else{
+            }
+            else {
                 sscanf(str.substr(i + 1, 2).c_str(), "%x", &ii);
                 ch = static_cast<char>(ii);
                 ret += ch;
@@ -96,8 +101,6 @@ class HttpRequest
         }
         return ret;
     }
-
-public:
 
     std::string path;
     std::string method;
