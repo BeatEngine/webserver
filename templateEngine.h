@@ -16,12 +16,11 @@ namespace htmlElement
         std::string innerText;
         std::vector<Tag> children;
 
-        void loadChildren(std::string& sourceCode, int start, int end)
+        void loadChildren(std::string& sourceCode, int start, int end, bool special)
         {
             std::vector<int> inners;
             std::string current = "";
             std::string tstr;
-            
             int tgc = 0;
             for(int i = start; i < end; i++)
             {
@@ -95,7 +94,7 @@ namespace htmlElement
                     A = inners[i+1]+1;
                 }
             }   
-            if(inners.size() == 0)
+            if(inners.size() == 0 || special)
             {
                 innerText = sourceCode.substr(start, end-start);
             } 
@@ -472,7 +471,7 @@ namespace htmlElement
                 }
             }
 
-            if(StringUtils::contains(innerText, pattA, true, &start) && StringUtils::contains(innerText, pattB, true, &end))
+            while(StringUtils::contains(innerText, pattA, true, &start) && StringUtils::contains(innerText, pattB, true, &end))
             {
                 if(start < end)
                 {
@@ -551,6 +550,10 @@ namespace htmlElement
                             innerText = innerText.substr(0, start) + variables.get(varName) + innerText.substr(end+2);
                         }
                     }
+                    else
+                    {
+                        break;
+                    }
                 }
             }
             end = 0;
@@ -572,7 +575,8 @@ namespace htmlElement
                             }
                             else
                             {
-                                attributes[i] = attributes[i].substr(0, start) + variables.get(varName) + attributes[i].substr(end+2);
+                                std::string res = attributes[i].substr(0, start) + variables.get(varName) + attributes[i].substr(end + 2);
+                                attributes[i] = res;
                             }
                         }
                     }
@@ -615,6 +619,7 @@ namespace htmlElement
             int tgc = 0;
             int innerStart = 0;
             int innerEnd = 0;
+            
             if(end == -1)
             {
                 end = sourceCode.size();
@@ -695,7 +700,12 @@ namespace htmlElement
             name = current;
             if(innerEnd > innerStart)
             {
-                loadChildren(sourceCode, innerStart, innerEnd);
+                bool special = false;
+                if (name == "script" || name == "style")
+                {
+                    special = true;
+                }
+                loadChildren(sourceCode, innerStart, innerEnd, special);
             }
         }
     };

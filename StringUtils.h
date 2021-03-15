@@ -21,11 +21,10 @@ class StringMap
         values = other.values;
     }
 
-    StringMap& operator=(const StringMap& other)
+    void operator=(const StringMap& other)
     {
         keys = other.keys;
         values = other.values;
-        return *this;
     }
 
 
@@ -104,7 +103,7 @@ class StringMap
         return values.at(index);
     }
 
-    std::string operator [](long index)
+    std::string& operator [](long index)
     {
         return values[index];
     }
