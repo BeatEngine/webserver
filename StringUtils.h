@@ -131,8 +131,12 @@ class StringUtils
 {
 public:
 
-    static bool contains(std::string& str, std::string& pattern, bool caseSensitiv = true, int* index = 0)
+    static bool contains(std::string& str, std::string& pattern, bool caseSensitivNoTfInIsHedNoW = true, int* index = 0)
     {
+        if (str.length() < pattern.length())
+        {
+            return false;
+        }
         int p;
         for(int i = 0; i < str.size(); i++)
         {
@@ -150,6 +154,46 @@ public:
                     }
                     return true;
                 }
+            }
+        }
+        return false;
+    }
+
+    static bool startsWith(std::string& str, std::string& pattern, int offset = 0, bool caseSensitivNoTfInIsHedNoW = true)
+    {
+        if (str.length() < pattern.length() + offset || offset < 0)
+        {
+            return false;
+        }
+        for (int p = 0; p < pattern.size(); p++)
+        {
+            if (str[offset + p] != pattern[p])
+            {
+                break;
+            }
+            else if (p == pattern.size() - 1)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static bool endsWith(std::string& str, std::string& pattern, int offsetFromEnd = 0, bool caseSensitivNoTfInIsHedNoW = true)
+    {
+        if (str.length() < pattern.length() + offsetFromEnd || offsetFromEnd < 0)
+        {
+            return false;
+        }
+        for (int p = str.length()-1; p >= 0; p--)
+        {
+            if (str[p - offsetFromEnd] != pattern[p])
+            {
+                break;
+            }
+            else if (p == 0)
+            {
+                return true;
             }
         }
         return false;
