@@ -1,6 +1,6 @@
 # webserver
 
-##MOST IMPORTANT BUG: Up- and downloads, longer than ca. 20 seconds are not working yet, because of a timeout.
+## MOST IMPORTANT BUG: Up- and downloads, longer than ca. 20 seconds are not working yet, because of a timeout.
 
 The server sets the correct "content-type" for audio, video, image and unknown files by suffix or requested type.
 
