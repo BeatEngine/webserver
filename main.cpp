@@ -1,6 +1,10 @@
 #include <stdio.h>
-#include <boost/asio.hpp>
-#include <boost/asio/ssl.hpp>
+
+//#include <boost/asio.hpp>
+//#include <boost/asio/ssl.hpp>
+
+#define TLS_AMALGAMATION
+#include "tlse/tlse.c"
 
 #include "HttpRequest.h"
 #include "Server.h"
@@ -32,12 +36,13 @@ std::string downloadUpload(HttpRequest& request, unsigned char* body, FILE* bigB
 
 std::string showUploads(HttpRequest& request, unsigned char* body, FILE* bigBody, size_t bodySize)
 {
-    boost::filesystem::path uploadFolder = "uploads";
-    boost::filesystem::directory_iterator dir(uploadFolder);
-    boost::filesystem::directory_iterator end;
+
+    //std::filesystem::
+    //filesystem::directory_iterator dir("uploads");
+    //filesystem::directory_iterator end;
 
     std::string jsonUploads = "[";
-    bool notFirst = false;
+    /*bool notFirst = false;
     for (dir; dir != end; dir++)
     {
         boost::filesystem::path entry = dir->path();
@@ -54,7 +59,7 @@ std::string showUploads(HttpRequest& request, unsigned char* body, FILE* bigBody
             jsonUploads += "\"" + entry.filename().string() + "\"";
         }
     }
-    jsonUploads += "]";
+    jsonUploads += "]";*/
     
 
     return jsonUploads;

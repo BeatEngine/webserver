@@ -1,5 +1,5 @@
 #ifndef ssl_socket
-    #define ssl_socket boost::asio::ssl::stream<boost::asio::ip::tcp::socket>
+    #define ssl_socket int
 #endif
 
 #ifdef __linux__ 

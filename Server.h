@@ -1,13 +1,21 @@
 #ifndef ssl_socket
-    #define ssl_socket boost::asio::ssl::stream<boost::asio::ip::tcp::socket>
+    #define ssl_socket int
 #endif
 
 
 
 #ifdef __linux__ 
 #define USLEEPDEFINED 1
-
+#include <sys/ioctl.h>
 #else
+#define _WIN32_WINNT 0xFFFF
+#include <Windows.h>
+#include <ws2tcpip.h>
+void* winWSADATA = 0;
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+
 #define F_OK 1
 #define WINVCUSED 1
 int access(const char* path, int stat = 1)
@@ -17,17 +25,6 @@ int access(const char* path, int stat = 1)
 		return -1;
 	}
 	return 0;
-}
-#include <thread>
-#define pthread_t std::thread
-void pthread_create(pthread_t* thread, int opt, void*(*function)(void* v), void* args)
-{
-	*thread = std::thread((void(*)(void* v))(*function), args);
-}
-
-void pthread_join(pthread_t& thread, void* resultReturn)
-{
-	thread.join();
 }
 #endif
 
@@ -45,10 +42,88 @@ void usleep(long mics)
 }
 #endif // !usleep
 
-#include <boost/uuid/uuid.hpp>
-#include <boost/uuid/uuid_io.hpp>
-#include <boost/uuid/uuid_generators.hpp>
-#include <boost/filesystem.hpp>
+#ifndef pthread_t
+    #include <thread>
+    #ifdef _THREAD_
+    #define pthread_t std::thread
+    void pthread_create(pthread_t* thread, int opt, void* (*function)(void* v), void* args)
+    {
+        *thread = std::thread((void(*)(void* v))(*function), args);
+    }
+
+    void pthread_join(pthread_t& thread, void* resultReturn)
+    {
+        thread.join();
+    }
+    #else
+    #ifndef __linux__ 
+    #include <Windows.h>
+    #define pthread_t HANDLE
+    void pthread_create(pthread_t* thread, int opt, void* (*function)(void* v), void* args)
+    {
+        DWORD ret;
+        CreateThread((LPSECURITY_ATTRIBUTES)0, 0, (LPTHREAD_START_ROUTINE)function, args, 0, &ret);
+    }
+
+    void pthread_join(pthread_t& thread, void* resultReturn)
+    {
+        WaitForSingleObject(thread, INFINITE);
+        CloseHandle(thread);
+    }
+    #endif
+    #endif
+#endif // !pthread_t
+
+#include "uuid/uuid.h"
+
+#ifdef __linux__
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#else
+#include <winsock2.h>
+#define socklen_t int
+#define sleep(x)    Sleep(x*1000)
+#endif
+
+namespace filesystem
+{
+
+#include <sys/stat.h>
+#ifdef __linux__ 
+    inline int create_directory(const std::string path)
+    {
+        mkdir(path.c_str(), 0777);
+    }
+    inline int create_directory(const char* path)
+    {
+        mkdir(path, 0777);
+    }
+#else
+#include <direct.h>
+    inline int create_directory(const std::string path)
+    {
+        mkdir(path.c_str());
+    }
+    inline int create_directory(const char* path)
+    {
+        mkdir(path);
+    }
+#endif
+    inline bool exists(const std::string name) {
+        struct stat buffer;
+        return (stat(name.c_str(), &buffer) == 0);
+    }
+
+    inline bool exists(const char* name) {
+        struct stat buffer;
+        return (stat(name, &buffer) == 0);
+    }
+}
+
+//#include <boost/uuid/uuid.hpp>
+//#include <boost/uuid/uuid_io.hpp>
+//#include <boost/uuid/uuid_generators.hpp>
+//#include <boost/filesystem.hpp>
 #include "templateEngine.h"
 
 #include <iostream>
@@ -150,16 +225,37 @@ std::string generateResponsehead(long sizeBytes, HttpRequest& request, std::stri
     return response;
 }
 
-
 std::size_t socketAvailable(ssl_socket& socket)
 {
-	return socket.next_layer().available();
+    unsigned long av = 0;
+#ifdef __linux__
+    ioctl(socket, FIONREAD, &av);
+    //WSAIoctl(socket, FIONREAD, 0, 0, &av, 0, &sz, &ov, 0);
+#else
+    unsigned long sz = 0;
+    WSAOVERLAPPED ov = { 0 };
+    WSAIoctl(socket, FIONREAD, 0,0, &av, 0, &sz, &ov, 0);
+#endif
+    return av;
 }
 
-std::size_t socketAvailable(boost::asio::ip::tcp::socket& socket)
+inline std::size_t socketAvailable(TLSContext* p)
 {
-	return socket.available();
+    return socketAvailable(*((ssl_socket*)(p)));
 }
+
+inline int unsafe_read(TLSContext* server, unsigned char* buffer, int size)
+{
+    return recv((intptr_t)server, (char*)buffer, size, 0);
+}
+
+inline int unsafe_write(TLSContext* server, const char* buffer, int size)
+{
+    return send((intptr_t)server, buffer, size, 0);
+}
+
+
+
 
 
 class RequestHandler
@@ -691,8 +787,8 @@ std::string randomFilename(int length = 10)
     return fn;
 }
 
-template<class SocketType>
-void handleHTTPSRequest(SocketType& server, RequestHandler* requestHandle = 0, bool consoleOutput = true, std::string* sessionCookieKeyValuePair = 0)
+
+void handleHTTPSRequest(TLSContext* server, RequestHandler* requestHandle = 0, bool consoleOutput = true, std::string* sessionCookieKeyValuePair = 0, bool secure = true)
 {
     unsigned char buffer[2048];
     int recv = 0;
@@ -702,7 +798,6 @@ void handleHTTPSRequest(SocketType& server, RequestHandler* requestHandle = 0, b
     int w = 0;
     long av;
     HttpRequest request;
-    bool secure = typeid(SocketType) == typeid(ssl_socket);
     std::string randomFN = "tmp/" + randomFilename();
     FILE* tmpStorage = 0;
     bool useFileBuffer = false;
@@ -712,41 +807,8 @@ void handleHTTPSRequest(SocketType& server, RequestHandler* requestHandle = 0, b
     clock_t timeBegin = clock();
     while (true)
     {
-        av = socketAvailable(server);
-        if(av > 2048)
-        {
-            av = 2048;
-        }
-        if (knownreceivesize > 0 && av < knownreceivesize - transferSize)
-        {
-            av = knownreceivesize-transferSize;
-            if (av > 2048)
-            {
-                av = 2048;
-            }
-        }
-        if(av == 0)
-        {
-            int stp = 0;
-            while (av == 0)
-            {
-                if(stp > timeoutcounter)
-                {
-                    if(transfered == 0)
-                    {
-                        break;
-                    }
-                    return;
-                }
-                usleep(timeoutdelay);
-                av = socketAvailable(server);
-                stp ++;
-            }
-            if(av > 2048)
-            {
-                av = 2048;
-            }
-        }
+        av = 2048;
+        
         try
         {
             if(recv > 0)
@@ -763,8 +825,22 @@ void handleHTTPSRequest(SocketType& server, RequestHandler* requestHandle = 0, b
                 }
             }
             
-            recv = server.read_some(boost::asio::buffer(buffer, av));
-            //printf("%.*s", recv, buffer);
+            //recv = server.read_some(boost::asio::buffer(buffer, av));
+            if (secure)
+            {
+                recv = SSL_read(server, buffer, av);
+            }
+            else
+            {
+                recv = unsafe_read(server, buffer, av);
+            }
+            //printf("%*.s\n", recv, buffer);
+            if (recv < 0)
+            {
+                break;
+            }
+
+            
         }
         catch(std::exception e)
         {
@@ -797,12 +873,12 @@ void handleHTTPSRequest(SocketType& server, RequestHandler* requestHandle = 0, b
         {
             transferSize += recv;
         }
-        if(recv <= 0)
+        if(recv < 0)
         {
-            if (transferSize >= knownreceivesize || (clock()-timeBegin)/CLOCKS_PER_SEC > 5)
-            {
+            //if (transferSize >= knownreceivesize || (clock()-timeBegin)/CLOCKS_PER_SEC > 5)
+            //{
                 break;
-            }
+            //}
         }
     }
     
@@ -858,11 +934,9 @@ void handleHTTPSRequest(SocketType& server, RequestHandler* requestHandle = 0, b
             }
             else
             {
-                boost::uuids::random_generator_pure gen;
-                boost::uuids::uuid gid = gen();
-                if(!request.cookies.set("session", boost::uuids::to_string(gid)))
+                if(!request.cookies.set("session", uuid::UUID::New().String()))
                 {
-                    request.cookies.put("session", boost::uuids::to_string(gid));
+                    request.cookies.put("session", uuid::UUID::New().String());
                 }
             }
             if(requestHandle->containsPath(request.path, request.method, &mappedFile))
@@ -941,7 +1015,16 @@ void handleHTTPSRequest(SocketType& server, RequestHandler* requestHandle = 0, b
                 {
                     while (snd < responseHead.length())
                     {
-                        snd += server.write_some(boost::asio::buffer(responseHead.c_str()+snd, responseHead.size()-snd));
+                        if (secure)
+                        {
+                            snd += SSL_write(server, responseHead.c_str() + snd, responseHead.size() - snd);
+                        }
+                        else
+                        {
+                            snd += unsafe_write(server, responseHead.c_str() + snd, responseHead.size() - snd);
+                        }
+                        
+                        //snd += server.write_some(boost::asio::buffer(responseHead.c_str()+snd, responseHead.size()-snd));
                         if(snd == -1)
                         {
                             break;
@@ -964,7 +1047,16 @@ void handleHTTPSRequest(SocketType& server, RequestHandler* requestHandle = 0, b
                     unsigned char* tmpData = (unsigned char*)generatedBody.c_str();
                     while (snd < generatedBody.size())
                     {
-                        snd += server.write_some(boost::asio::buffer(tmpData+snd, generatedBody.size()-snd));
+                        
+                        if (secure)
+                        {
+                            snd += SSL_write(server, tmpData + snd, generatedBody.size() - snd);
+                        }
+                        else
+                        {
+                            snd += unsafe_write(server, (const char*)(tmpData + snd), generatedBody.size() - snd);
+                        }
+                        //snd += server.write_some(boost::asio::buffer(tmpData+snd, generatedBody.size()-snd));
                         if(snd == -1)
                         {
                             break;
@@ -1012,7 +1104,16 @@ void handleHTTPSRequest(SocketType& server, RequestHandler* requestHandle = 0, b
                 {
                     while (snd < notFound.length())
                     {
-                        snd = server.write_some(boost::asio::buffer(notFound.c_str()+snd, notFound.size()-snd));
+                        
+                        if (secure)
+                        {
+                            snd = SSL_write(server, notFound.c_str() + snd, notFound.size() - snd);
+                        }
+                        else
+                        {
+                            snd = unsafe_write(server, notFound.c_str() + snd, notFound.size() - snd);
+                        }
+                        //snd = server.write_some(boost::asio::buffer(notFound.c_str()+snd, notFound.size()-snd));
                         if(snd == -1)
                         {
                             break;
@@ -1049,7 +1150,16 @@ void handleHTTPSRequest(SocketType& server, RequestHandler* requestHandle = 0, b
                 {
                     while (snd < notFound.length())
                     {
-                        snd = server.write_some(boost::asio::buffer(notFound.c_str()+snd, notFound.size()-snd));
+                        if (secure)
+                        {
+                            snd = SSL_write(server, notFound.c_str() + snd, notFound.size() - snd);
+                        }
+                        else
+                        {
+                            snd = unsafe_write(server, notFound.c_str() + snd, notFound.size() - snd);
+                        }
+                        
+                        //snd = server.write_some(boost::asio::buffer(notFound.c_str()+snd, notFound.size()-snd));
                         if(snd == -1)
                         {
                             break;
@@ -1109,11 +1219,9 @@ void handleHTTPSRequest(SocketType& server, RequestHandler* requestHandle = 0, b
             }
             else
             {
-                boost::uuids::random_generator_pure gen;
-                boost::uuids::uuid gid = gen();
-                if(!request.cookies.set("session", boost::uuids::to_string(gid)))
+                if (!request.cookies.set("session", uuid::UUID::New().String()))
                 {
-                    request.cookies.put("session", boost::uuids::to_string(gid));
+                    request.cookies.put("session", uuid::UUID::New().String());
                 }
             }
             std::string responseHead = generateResponsehead(size, request);
@@ -1122,12 +1230,26 @@ void handleHTTPSRequest(SocketType& server, RequestHandler* requestHandle = 0, b
             {
                 while (snd < responseHead.length())
                 {
-                    snd += server.write_some(boost::asio::buffer(responseHead.c_str()+snd, responseHead.size()-snd));
-                    if(snd == -1)
+                    int s = 0;
+                    if (secure)
+                    {
+                        s = SSL_write(server, responseHead.c_str() + snd, responseHead.size() - snd);
+                    }
+                    else
+                    {
+                        s = unsafe_write(server, responseHead.c_str() + snd, responseHead.size() - snd);
+                    }
+                    //snd += server.write_some(boost::asio::buffer(responseHead.c_str()+snd, responseHead.size()-snd));
+                    if(s <= 0)
                     {
                         break;
                     }
+                    snd += s;
                     transfered += snd;
+                    if (snd >= responseHead.size())
+                    {
+                        break;
+                    }
                 }
             }
             catch(std::exception e)
@@ -1159,12 +1281,26 @@ void handleHTTPSRequest(SocketType& server, RequestHandler* requestHandle = 0, b
                     snd = 0;
                     while (snd < r)
                     {
-                        snd += server.write_some(boost::asio::buffer(buffer+snd, r-snd));
-                        if(snd == -1)
+                        int s = 0;
+                        if (secure)
+                        {
+                            s = SSL_write(server, buffer + snd, r - snd);
+                        }
+                        else
+                        {
+                            s = unsafe_write(server,(const char*)(buffer + snd), r - snd);
+                        }
+                        //snd += server.write_some(boost::asio::buffer(buffer+snd, r-snd));
+                        if(s == -1)
                         {
                             break;
                         }
+                        snd += s;
                         transfered += snd;
+                        if (snd >= responseHead.size())
+                        {
+                            break;
+                        }
                     }
                 }
             }
@@ -1192,12 +1328,25 @@ void handleHTTPSRequest(SocketType& server, RequestHandler* requestHandle = 0, b
             {
                 while (snd < notFound.length())
                 {
-                    snd = server.write_some(boost::asio::buffer(notFound.c_str()+snd, notFound.size()-snd));
+                    
+                    if (secure)
+                    {
+                        snd = SSL_write(server, notFound.c_str() + snd, notFound.size() - snd);
+                    }
+                    else
+                    {
+                        snd = unsafe_write(server, notFound.c_str() + snd, notFound.size() - snd);
+                    }
+                    //snd = server.write_some(boost::asio::buffer(notFound.c_str()+snd, notFound.size()-snd));
                     if(snd == -1)
                     {
                         break;
                     }
                     transfered += snd;
+                    if (snd >= notFound.size())
+                    {
+                        break;
+                    }
                 }
             }
             catch(std::exception e)
@@ -1314,9 +1463,9 @@ class Webserver
     void bindMultiPartFileUpload(std::string requestPath, std::string requestMethod, std::string storageDirectory)
     {
         std::string meth = toUppercase(requestMethod);
-        if (!boost::filesystem::exists(boost::filesystem::path(storageDirectory)))
+        if (!filesystem::exists(storageDirectory))
         {
-            boost::filesystem::create_directory(boost::filesystem::path(storageDirectory));
+            filesystem::create_directory(storageDirectory);
         }
         customRequests.setPathMultiPartFileUpload(requestPath, meth, storageDirectory);
     }
@@ -1328,55 +1477,192 @@ class Webserver
         bool https = (bool)(parm[1]);
         bool consoleOutput = (bool)(parm[2]);
         Webserver* wserver = (Webserver*)parm[3];
-        boost::asio::ip::tcp::endpoint* serverV4 = (boost::asio::ip::tcp::endpoint*)parm[4];
-        boost::asio::ip::tcp::endpoint* serverV6 = (boost::asio::ip::tcp::endpoint*)parm[5];
-        boost::asio::io_service* io_service = (boost::asio::io_service*)parm[6];
-        boost::asio::ip::tcp::acceptor* acceptorV4 = (boost::asio::ip::tcp::acceptor*)parm[7];
-        //boost::asio::ip::tcp::acceptor acceptorV6(io_service, serverV6);
-        boost::asio::ssl::context* ssl_context = (boost::asio::ssl::context*)parm[8];
+
+        std::string pathToPublicKey = "certs/newcert.pem";
+        std::string pathToPrivatKey = "certs/privkey.pem";
+
+        
+
+        SSL* server_ctx = SSL_CTX_new(SSLv3_server_method());
+        if (!server_ctx) {
+            fprintf(stderr, "Error creating server context\n");
+            return;
+        }
+        SSL_CTX_use_certificate_file(server_ctx, pathToPublicKey.c_str(), SSL_SERVER_RSA_CERT);
+        SSL_CTX_use_PrivateKey_file(server_ctx, pathToPrivatKey.c_str(), SSL_SERVER_RSA_KEY);
+
+        if (!SSL_CTX_check_private_key(server_ctx)) {
+            fprintf(stderr, "Private key not loaded\n");
+            return;
+        }
 
         while(true)
         {
+            sockaddr_in server;
+            sockaddr_in client;
+           
             try
             {
-                ssl_socket socket(*io_service, *ssl_context);
-                acceptorV4->accept(socket.next_layer());
-                socket.handshake(boost::asio::ssl::stream_base::handshake_type::server);
-                bool isNewClient = wserver->addSession(socket.next_layer().remote_endpoint().address().to_string());
-                if(wserver->customRequests.size() > 0)
+                int client_sock, read_size;
+                int c;
+                ssl_socket sock;
+
+
+                client_sock = -1;
+                
+                int enable = 1;
+#ifdef __linux__ 
+              
+                sock = socket(AF_INET, SOCK_STREAM, 0);
+                server.sin_port = htons(port);
+                server.sin_family = AF_INET;
+                
+                setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, (const char*)&enable, sizeof(int));
+                struct timeval timeout;
+                timeout.tv_sec = 1;
+                timeout.tv_usec = 0;
+                if (setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeout)) < 0)
                 {
-                    if(isNewClient)
+                    std::string err = "set socket option timeout failed!\n";
+                    perror(err.c_str());
+                    return;
+                }
+                if (setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, (const char*)&timeout, sizeof(timeout)) < 0)
+                {
+                    std::string err = "set socket option timeout failed!\n";
+                    perror(err.c_str());
+                    return;
+                }
+                int err = bind(sock, (struct sockaddr*)&server, sizeof(server));
+#else
+                struct addrinfo hints;
+                struct addrinfo* result = 0;
+                memset(&hints, 0, sizeof(hints));
+                hints.ai_family = AF_INET;
+                hints.ai_socktype = SOCK_STREAM;
+                hints.ai_protocol = IPPROTO_TCP;
+                hints.ai_flags = AI_PASSIVE;
+
+                // Resolve the server address and port
+                int iResult = getaddrinfo(NULL, std::to_string(port).c_str(), &hints, &result);
+                if (iResult != 0) {
+                    printf("getaddrinfo failed with error: %d\n", iResult);
+                    return;
+                }
+
+                hostent* localHost;
+                char* localIP;
+
+         
+                sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+
+             
+                setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, (const char*)&enable, sizeof(int));
+                int timeout = 1000;
+                if (setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeout)) < 0)
+                {
+                    std::string err = "set socket option: ";
+                    err += std::to_string(WSAGetLastError());
+                    perror(err.c_str());
+                    return;
+                }
+              
+                int err = bind(sock, result->ai_addr, (int)result->ai_addrlen);
+
+                
+#endif
+
+
+                
+                
+                if (err < 0) {
+                    perror(std::string("bind failed. Error: " + std::to_string(err)).c_str());
+                    return;
+                }
+
+
+                listen(sock, 3);
+
+                c = sizeof(struct sockaddr_in);
+
+                unsigned int size;
+
+                
+
+                //acceptorV4->accept(socket.next_layer());
+                //socket.handshake(boost::asio::ssl::stream_base::handshake_type::server);
+                
+                while (client_sock < 0)
+                {
+                    client_sock = accept(sock, (struct sockaddr*)&client, &c);
+                    usleep(10);
+                }
+
+                SSL* client = SSL_new(server_ctx);
+                if (!client) {
+                    fprintf(stderr, "Error creating SSL client\n");
+                    break;
+                }
+
+                SSL_set_fd(client, client_sock);
+                if (!SSL_accept(client))
+                {
+                    fprintf(stderr, "Error in handshake\n");
+                    continue;
+                }
+                bool isNewClient = wserver->addSession(((struct sockaddr*)&client_sock)->sa_data);
+                if (wserver->customRequests.size() > 0)
+                {
+                    if (isNewClient)
                     {
-                        boost::uuids::random_generator_pure gen;
-                        boost::uuids::uuid gid = gen();
                         std::string sessionCookie[2];
                         sessionCookie[0] = "session";
-                        sessionCookie[1] = boost::uuids::to_string(gid);
-                        handleHTTPSRequest(socket, &(wserver->customRequests), consoleOutput, sessionCookie);
+                        sessionCookie[1] = uuid::UUID::New().String();
+                        //printf("A\n");
+                        handleHTTPSRequest((TLSContext*)client, &(wserver->customRequests), consoleOutput, sessionCookie);
+                        //printf("B\n");
                     }
                     else
                     {
-                        handleHTTPSRequest(socket, &(wserver->customRequests), consoleOutput);
+                        handleHTTPSRequest((TLSContext*)client, &(wserver->customRequests), consoleOutput);
                     }
                 }
                 else
                 {
-                    if(isNewClient)
+                    if (isNewClient)
                     {
-                        boost::uuids::random_generator_pure gen;
-                        boost::uuids::uuid gid = gen();
                         std::string sessionCookie[2];
                         sessionCookie[0] = "session";
-                        sessionCookie[1] = boost::uuids::to_string(gid);
-                        handleHTTPSRequest(socket, 0, consoleOutput, sessionCookie);
+                        sessionCookie[1] = uuid::UUID::New().String();
+                        handleHTTPSRequest((TLSContext*)client, 0, consoleOutput, sessionCookie);
                     }
                     else
                     {
-                        handleHTTPSRequest(socket, 0, consoleOutput);
+                        handleHTTPSRequest((TLSContext*)client, 0, consoleOutput);
                     }
                 }
-                socket.next_layer().close();
 
+                //printf("Shutting down...\n");
+                //socket.next_layer().close();
+                SSL_shutdown(client);
+#ifdef __linux__
+                //printf("Shutting down 2...\n");
+                shutdown(client_sock, SHUT_RDWR);
+                //printf("Shutting down close...\n");
+                shutdown(sock, SHUT_RDWR);
+                close(client_sock);
+                close(sock);
+#else
+                shutdown(client_sock, SD_BOTH);
+                shutdown(sock, SD_BOTH);
+                closesocket(client_sock);
+                closesocket(sock);
+#endif
+                //printf("End...\n");
+                SSL_free(client);
+
+                
+                
             }
             catch(std::exception e)
             {
@@ -1385,68 +1671,211 @@ class Webserver
                     printf("Connection Error!\n");
                 }
             }
+            
         }
+        SSL_CTX_free(server_ctx);
     }
 
     static void sThreadUnsafe(void* params)
     {
-        uintptr_t *parm = (uintptr_t*)params;
+        uintptr_t* parm = (uintptr_t*)params;
         int port = (int)(parm[0]);
         bool https = (bool)(parm[1]);
         bool consoleOutput = (bool)(parm[2]);
         Webserver* wserver = (Webserver*)parm[3];
-        boost::asio::ip::tcp::endpoint* server = (boost::asio::ip::tcp::endpoint*)parm[4];
-        boost::asio::io_service* io_service = (boost::asio::io_service*)parm[5];
-        boost::asio::ip::tcp::acceptor* acceptor = (boost::asio::ip::tcp::acceptor*)parm[6];
-        
-        while(true)
+        //boost::asio::ip::tcp::endpoint* serverV4 = (boost::asio::ip::tcp::endpoint*)parm[4];
+        //boost::asio::ip::tcp::endpoint* serverV6 = (boost::asio::ip::tcp::endpoint*)parm[5];
+        //boost::asio::io_service* io_service = (boost::asio::io_service*)parm[6];
+        //boost::asio::ip::tcp::acceptor* acceptorV4 = (boost::asio::ip::tcp::acceptor*)parm[7];
+        //boost::asio::ip::tcp::acceptor acceptorV6(io_service, serverV6);
+        //boost::asio::ssl::context* ssl_context = (boost::asio::ssl::context*)parm[8];
+
+        std::string pathToPublicKey = "certs/newcert.pem";
+        std::string pathToPrivatKey = "certs/privkey.pem";
+
+
+
+        SSL* server_ctx = SSL_CTX_new(SSLv3_server_method());
+        if (!server_ctx) {
+            fprintf(stderr, "Error creating server context\n");
+            return;
+        }
+        SSL_CTX_use_certificate_file(server_ctx, pathToPublicKey.c_str(), SSL_SERVER_RSA_CERT);
+        SSL_CTX_use_PrivateKey_file(server_ctx, pathToPrivatKey.c_str(), SSL_SERVER_RSA_KEY);
+
+        if (!SSL_CTX_check_private_key(server_ctx)) {
+            fprintf(stderr, "Private key not loaded\n");
+            return;
+        }
+
+        while (true)
         {
+            sockaddr_in server;
+            sockaddr_in client;
+
             try
             {
-                boost::asio::ip::tcp::socket socket(*io_service);    
-                acceptor->accept(socket);
-                bool isNewClient = wserver->addSession(socket.remote_endpoint().address().to_string());
-                if(wserver->customRequests.size() > 0)
+                int client_sock, read_size;
+                int c;
+                ssl_socket sock;
+
+
+                client_sock = -1;
+
+                int enable = 1;
+#ifdef __linux__ 
+
+                sock = socket(AF_INET, SOCK_STREAM, 0);
+                server.sin_port = htons(port);
+                server.sin_family = AF_INET;
+
+                setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, (const char*)&enable, sizeof(int));
+                struct timeval timeout;
+                timeout.tv_sec = 1;
+                timeout.tv_usec = 0;
+                if (setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeout)) < 0)
                 {
-                    if(isNewClient)
+                    std::string err = "set socket option timeout failed!\n";
+                    perror(err.c_str());
+                    return;
+                }
+                if (setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, (const char*)&timeout, sizeof(timeout)) < 0)
+                {
+                    std::string err = "set socket option timeout failed!\n";
+                    perror(err.c_str());
+                    return;
+                }
+                int err = bind(sock, (struct sockaddr*)&server, sizeof(server));
+#else
+                struct addrinfo hints;
+                struct addrinfo* result = 0;
+                memset(&hints, 0, sizeof(hints));
+                hints.ai_family = AF_INET;
+                hints.ai_socktype = SOCK_STREAM;
+                hints.ai_protocol = IPPROTO_TCP;
+                hints.ai_flags = AI_PASSIVE;
+
+                // Resolve the server address and port
+                int iResult = getaddrinfo(NULL, std::to_string(port).c_str(), &hints, &result);
+                if (iResult != 0) {
+                    printf("getaddrinfo failed with error: %d\n", iResult);
+                    return;
+                }
+
+                hostent* localHost;
+                char* localIP;
+
+
+                sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+
+
+                //localHost = gethostbyname("");
+                //localIP = inet_ntoa(*(struct in_addr*)*localHost->h_addr_list);
+
+
+                //server.sin_family = AF_INET;
+                //server.sin_addr.s_addr = inet_addr(localIP);
+                //server.sin_port = htons(5150);
+
+                setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, (const char*)&enable, sizeof(int));
+                int timeout = 1000;
+                if (setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeout)) < 0)
+                {
+                    std::string err = "set socket option: ";
+                    err += std::to_string(WSAGetLastError());
+                    perror(err.c_str());
+                    return;
+                }
+
+                int err = bind(sock, result->ai_addr, (int)result->ai_addrlen);
+
+
+#endif
+
+
+
+
+                if (err < 0) {
+                    perror(std::string("bind failed. Error: " + std::to_string(err)).c_str());
+                    return;
+                }
+
+
+                listen(sock, 3);
+
+                c = sizeof(struct sockaddr_in);
+
+                unsigned int size;
+
+
+
+                //acceptorV4->accept(socket.next_layer());
+                //socket.handshake(boost::asio::ssl::stream_base::handshake_type::server);
+
+                while (client_sock < 0)
+                {
+                    client_sock = accept(sock, (struct sockaddr*)&client, &c);
+                    usleep(10);
+                }
+
+                bool isNewClient = wserver->addSession(((struct sockaddr*)&client_sock)->sa_data);
+                if (wserver->customRequests.size() > 0)
+                {
+                    if (isNewClient)
                     {
-                        boost::uuids::random_generator_pure gen;
-                        boost::uuids::uuid gid = gen();
                         std::string sessionCookie[2];
                         sessionCookie[0] = "session";
-                        sessionCookie[1] = boost::uuids::to_string(gid);
-                        handleHTTPSRequest(socket, &(wserver->customRequests), consoleOutput, sessionCookie);
+                        sessionCookie[1] = uuid::UUID::New().String();
+                        printf("A\n");
+                        handleHTTPSRequest((TLSContext*)client_sock, &(wserver->customRequests), consoleOutput, sessionCookie, false);
+                        printf("B\n");
                     }
                     else
                     {
-                        handleHTTPSRequest(socket, &(wserver->customRequests), consoleOutput);
+                        handleHTTPSRequest((TLSContext*)client_sock, &(wserver->customRequests), consoleOutput,0, false);
                     }
                 }
                 else
                 {
-                    if(isNewClient)
+                    if (isNewClient)
                     {
-                        boost::uuids::random_generator_pure gen;
-                        boost::uuids::uuid gid = gen();
                         std::string sessionCookie[2];
                         sessionCookie[0] = "session";
-                        sessionCookie[1] = boost::uuids::to_string(gid);
-                        handleHTTPSRequest(socket, 0, consoleOutput, sessionCookie);
+                        sessionCookie[1] = uuid::UUID::New().String();
+                        handleHTTPSRequest((TLSContext*)client_sock, 0, consoleOutput, sessionCookie, false);
                     }
                     else
                     {
-                        handleHTTPSRequest(socket, 0, consoleOutput);
+                        handleHTTPSRequest((TLSContext*)client_sock, 0, consoleOutput,0, false);
                     }
                 }
-                socket.close();
+
+#ifdef __linux__
+                //printf("Shutting down ...\n");
+                shutdown(client_sock, SHUT_RDWR);
+                //printf("Shutting down close...\n");
+                shutdown(sock, SHUT_RDWR);
+                close(client_sock);
+                close(sock);
+#else
+                shutdown(client_sock, SD_BOTH);
+                shutdown(sock, SD_BOTH);
+                closesocket(client_sock);
+                closesocket(sock);
+#endif
+                //printf("End...\n");
+
+
+
             }
-            catch(std::exception e)
+            catch (std::exception e)
             {
-                if(consoleOutput)
+                if (consoleOutput)
                 {
                     printf("Connection Error!\n");
                 }
             }
+
         }
     }
 
@@ -1459,26 +1888,12 @@ class Webserver
 		pthread_t thread[64];
         if(https)
         {
-            boost::asio::ip::tcp::endpoint serverV4(boost::asio::ip::tcp::v4(), port);
-            boost::asio::ip::tcp::endpoint serverV6(boost::asio::ip::tcp::v6(), port);
-            boost::asio::io_service io_service;
-            boost::asio::ip::tcp::acceptor acceptorV4(io_service, serverV4);
-            //boost::asio::ip::tcp::acceptor acceptorV6(io_service, serverV6);
-            boost::asio::ssl::context ssl_context(boost::asio::ssl::context::tlsv13_server);
-            ssl_context.use_certificate_file(wserver->publicKeyPath, boost::asio::ssl::context_base::pem);
-            ssl_context.use_private_key_file(wserver->privatKeyPath, boost::asio::ssl::context_base::pem);
-            //ssl_context.use_tmp_dh_file("certs/dh2048.pem");
             
             uintptr_t args[9];
             args[0] = params[0];
             args[1] = params[1];
             args[2] = params[2];
             args[3] = params[3];
-            args[4] = (uintptr_t)(&serverV4);
-            args[5] = (uintptr_t)(&serverV6);
-            args[6] = (uintptr_t)(&io_service);
-            args[7] = (uintptr_t)(&acceptorV4);
-            args[8] = (uintptr_t)(&ssl_context);
             uintptr_t* f = (uintptr_t*)(sThreadSafe);
             for(int i = 0; i < threads; i++)
             {
@@ -1491,24 +1906,17 @@ class Webserver
         }
         else
         {
-            boost::asio::ip::tcp::endpoint server(boost::asio::ip::tcp::v4(), port);
-            boost::asio::io_service io_service;
-            boost::asio::ip::tcp::acceptor acceptor(io_service, server);
-            
             uintptr_t args[9];
             args[0] = params[0];
             args[1] = params[1];
             args[2] = params[2];
             args[3] = params[3];
-            args[4] = (uintptr_t)(&server);
-            args[5] = (uintptr_t)(&io_service);
-            args[6] = (uintptr_t)(&acceptor);
             uintptr_t* f = (uintptr_t*)(sThreadUnsafe);
-            for(int i = 0; i < threads; i++)
+            for (int i = 0; i < threads; i++)
             {
-                pthread_create(&thread[i], 0, ((void*(*)(void* v))(f)), args);
+                pthread_create(&thread[i], 0, ((void* (*)(void* v))(f)), args);
             }
-            for(int i = 0; i < threads; i++)
+            for (int i = 0; i < threads; i++)
             {
                 pthread_join(thread[i], 0);
             }
@@ -1517,13 +1925,27 @@ class Webserver
 
     void run(int port, bool https = true, std::string pathToPublicKey = "certs/newcert.pem", std::string pathToPrivatKey = "certs/privkey.pem", bool consoleOutput = true, int threads = 8)
     {
+
+#ifndef __linux__ 
+        WSADATA* wsaData = (WSADATA*)calloc(1, sizeof(WSADATA));
+        winWSADATA = wsaData;
+        int currentStateResult = WSAStartup(MAKEWORD(2, 2), wsaData);
+        if (currentStateResult != 0) {
+            std::string err = "WSAStartup failed with result: ";
+            err += std::to_string(currentStateResult);
+            perror(err.c_str());
+            return;
+        }
+#endif
+
+
         bool noCert = false;
-        if (!boost::filesystem::exists(boost::filesystem::path(pathToPublicKey)))
+        if (!filesystem::exists(pathToPublicKey))
         {
             printf("Error: Public SSL cert not found (%s)\n", pathToPublicKey.c_str());
             noCert = true;
         }
-        if (!boost::filesystem::exists(boost::filesystem::path(pathToPrivatKey)))
+        if (!filesystem::exists(pathToPrivatKey))
         {
             printf("Error: Private SSL cert not found (%s)\n", pathToPrivatKey.c_str());
             noCert = true;
@@ -1535,9 +1957,9 @@ class Webserver
             return;
         }
 
-        if(!boost::filesystem::exists(boost::filesystem::path("./tmp")))
+        if(!filesystem::exists("./tmp"))
         {
-            boost::filesystem::create_directory(boost::filesystem::path("./tmp"));
+            filesystem::create_directory("./tmp");
         }
         this->privatKeyPath = pathToPrivatKey;
         this->publicKeyPath = pathToPublicKey;
@@ -1548,6 +1970,18 @@ class Webserver
         args[2] = (uintptr_t)(consoleOutput);
         args[3] = (uintptr_t)(this);
         sthread(args, threads);
+#ifndef __linux__ 
+        if (winWSADATA)
+        {
+            WSADATA* wsaData = (WSADATA*)winWSADATA;
+            if (wsaData->lpVendorInfo)
+            {
+                free(wsaData->lpVendorInfo);
+            }
+            free(winWSADATA);
+            WSACleanup();
+        }
+#endif
     }
 };
 
