@@ -1,6 +1,6 @@
 # webserver
 
-## MOST IMPORTANT BUG: Up- and downloads, longer than ca. 20 seconds are not working yet, because of a timeout.
+## MOST IMPORTANT BUG: Up- and downloads, longer than ca. 20 seconds are not working (TEST if yet not working)
 
 The server sets the correct "content-type" for audio, video, image and unknown files by suffix or requested type.
 
@@ -18,20 +18,11 @@ You need the certificate files in ./certs/ -> newcert.pem, privkey.pem, dh2048.p
 
 # Build
 ## Linux
-unzip Includes_BoostLinux.zip  and unzip Libraries_BoostLinux.zip
-
-Use build-compile_static.sh or alternate build-compile.sh
+run ./build-compile_static.sh
 ### Raspberry PI
-unzip Includes_BoostLinux.zip  and unzip Libraries_BoostLinux.zip
-
-Use build-compile_raspberrypi.sh
+run ./build-compile_static.sh
 
 ## Windows
-Install Visual Studio (Desktop-Apps C++, Chose newest Windows (10) SDK and check also).
-
-Run WindowsIncludeAndLib.exe for decompressing the include and lib folder into the webserver-master directory.
-
-Open WebserverCpp.vcxproj with Visual Studio
-Go to Menu Project->Settings->Configuration Windows SDK --> choose the version one you have installed before.
-
-Build x64 (Release)
+# You need MinGW
+# edit build-compile_static.bat --> change line set PATH=C:\MinGW\bin --> to your path!!!
+run build-compile_static.bat
